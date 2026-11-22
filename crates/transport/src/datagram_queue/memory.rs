@@ -29,11 +29,13 @@ pub(crate) struct Shared {
     codec: Mutex<Option<crate::finalmask::udp::Codec>>,
     masked: bool,
     individual: std::sync::atomic::AtomicBool,
+    pub max_transmit_datagram_bytes: usize,
 }
 impl Memory {
     pub fn prepare(
         book: CarrierBufferBudget,
         masks: &[crate::finalmask::udp::Mask],
+        max_transmit_datagram_bytes: usize,
     ) -> io::Result<Self> {
         // This concrete consumer is HY2's existing zero/one Salamander path.
         // Other mask workers retain their own production owners and queues.
@@ -47,7 +49,7 @@ impl Memory {
                 ))
             }
         };
-        let transmit_peak = peak_transmit(masked, MAX_DATAGRAM_BYTES)?;
+        let transmit_peak = peak_transmit(masked, max_transmit_datagram_bytes)?;
         let receive_peak = peak_receive(masked, RECEIVE_BYTES)?;
         let mut working = book.try_working_set(CarrierBufferWorkingShape {
             receive_scratch_bytes: RECEIVE_BYTES,
@@ -74,6 +76,7 @@ impl Memory {
             codec: Mutex::new(codec),
             masked,
             individual: std::sync::atomic::AtomicBool::new(false),
+            max_transmit_datagram_bytes,
         });
         Ok(Self {
             receive: Receive {
@@ -119,7 +122,8 @@ impl Shared {
         } else {
             segments.max(1)
         };
-        let bytes = MAX_DATAGRAM_BYTES
+        let bytes = self
+            .max_transmit_datagram_bytes
             .checked_mul(segments)
             .ok_or(io::ErrorKind::InvalidInput)?;
         self.transmit
@@ -205,6 +209,7 @@ impl Receive {
                 codec: Mutex::new(None),
                 masked: false,
                 individual: std::sync::atomic::AtomicBool::new(false),
+                max_transmit_datagram_bytes: MAX_DATAGRAM_BYTES,
             }),
         })
     }

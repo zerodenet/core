@@ -5,6 +5,33 @@ use std::{
     task::{Wake, Waker},
 };
 use zero_platform_tokio::controlled_carrier::{CarrierBufferLimits, CarrierOriginalTotals};
+
+#[test]
+fn native_batch_prepaid_at_quic_mtu_fits_all_pool_entries() {
+    let capacity = 256;
+    let native_segments = 64;
+    let root = CarrierOriginalTotals::new(NonZeroUsize::new(capacity).unwrap());
+    let book = root.buffer_budget();
+    let datagram_bytes = usize::from(crate::quic::QuicTransportOptions::MAX_DATAGRAM_BYTES);
+    let queues: Vec<_> = (0..capacity)
+        .map(|_| {
+            let memory = memory::Memory::prepare(book.clone(), &[], datagram_bytes).unwrap();
+            memory.shared.grow_native(native_segments).unwrap();
+            memory
+        })
+        .collect();
+    let peak = datagram_bytes * native_segments;
+    assert_eq!(
+        book.used_bytes(),
+        capacity * (2 * memory::RECEIVE_BYTES + peak)
+    );
+    let frame = queues[0].shared.reserve_transmit(peak).unwrap();
+    assert_eq!(frame.bytes(), peak);
+    drop(frame);
+    drop(queues);
+    assert_eq!(book.used_bytes(), 0);
+}
+
 #[test]
 fn decoded_siblings_keep_the_same_original_ticket_and_failed_promotion_never_refunds_live_bytes() {
     use zero_traits::packet_metadata::PacketMetadataLayout;
@@ -101,7 +128,7 @@ async fn actual_packet_poller_reuses_its_working_ticket_when_root_has_no_free_by
     .unwrap();
     let book = root.buffer_budget();
     let logical = "127.0.0.1:443".parse().unwrap();
-    let memory = memory::Memory::prepare(book.clone(), &[]).unwrap();
+    let memory = memory::Memory::prepare(book.clone(), &[], memory::MAX_DATAGRAM_BYTES).unwrap();
     let (socket, mut channels) = prepare_budgeted_channels(logical, logical, memory);
     let frame = Transmit {
         destination: logical,
@@ -153,7 +180,7 @@ fn stateless_mask_copy_peak_is_prepaid_before_any_queue_or_native_resource_exist
     let masks = [crate::finalmask::udp::Mask::Salamander {
         password: "fixture-only-mask".into(),
     }];
-    assert!(memory::Memory::prepare(book.clone(), &masks).is_err());
+    assert!(memory::Memory::prepare(book.clone(), &masks, memory::MAX_DATAGRAM_BYTES).is_err());
     assert_eq!(book.used_bytes(), 0);
     assert_eq!(root.snapshot().charged, 0);
 }

@@ -29,9 +29,12 @@ impl Generation {
         logical.set_port(options.leaf.port);
         // The original N is already held. Prepay actual scratch/codec/copy
         // before opening any native candidate; no second byte book is created.
-        let (socket, queues) =
-            PacketSocket::prepare_with_budget(logical, self.buffers.clone(), &options.masks())
-                .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
+        let (socket, queues) = PacketSocket::prepare_with_transport_options(
+            logical,
+            self.buffers.clone(),
+            &options.masks(),
+        )
+        .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
         let (peer, grant) = state.candidates.as_ref().unwrap().open_metadata(
             index,
             port,

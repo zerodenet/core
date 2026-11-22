@@ -162,7 +162,37 @@ impl PacketSocket {
         book: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
         masks: &[crate::finalmask::udp::Mask],
     ) -> io::Result<(Self, PacketQueues)> {
-        let memory = datagram_queue::memory::Memory::prepare(book, masks)?;
+        Self::prepare_with_datagram_bound(
+            logical,
+            book,
+            masks,
+            datagram_queue::memory::MAX_DATAGRAM_BYTES,
+        )
+    }
+
+    /// Pair the packet queue with a client built from `QuicTransportOptions`.
+    /// Each native GSO segment is bounded by that transport's datagram ceiling.
+    pub fn prepare_with_transport_options(
+        logical: SocketAddr,
+        book: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
+        masks: &[crate::finalmask::udp::Mask],
+    ) -> io::Result<(Self, PacketQueues)> {
+        Self::prepare_with_datagram_bound(
+            logical,
+            book,
+            masks,
+            usize::from(crate::quic::QuicTransportOptions::MAX_DATAGRAM_BYTES),
+        )
+    }
+
+    fn prepare_with_datagram_bound(
+        logical: SocketAddr,
+        book: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
+        masks: &[crate::finalmask::udp::Mask],
+        max_transmit_datagram_bytes: usize,
+    ) -> io::Result<(Self, PacketQueues)> {
+        let memory =
+            datagram_queue::memory::Memory::prepare(book, masks, max_transmit_datagram_bytes)?;
         let shared = memory.shared.clone();
         let callbacks = callbacks::Broker::new(1)?;
         let local = SocketAddr::new(

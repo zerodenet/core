@@ -298,11 +298,19 @@ impl AsyncUdpSocket for Socket {
         } else {
             maximum
         };
+        let max_datagram_bytes = self
+            .memory
+            .as_ref()
+            .map_or(memory::MAX_DATAGRAM_BYTES, |memory| {
+                memory.max_transmit_datagram_bytes
+            });
         let valid = match (maximum, transmit.segment_size) {
             (Some(maximum), Some(size)) => {
-                size > 0 && size <= 65507 && transmit.contents.len().div_ceil(size) <= maximum
+                size > 0
+                    && size <= max_datagram_bytes
+                    && transmit.contents.len().div_ceil(size) <= maximum
             }
-            (_, None) => transmit.contents.len() <= 65507,
+            (_, None) => transmit.contents.len() <= max_datagram_bytes,
             (None, Some(_)) => false,
         };
         if !valid {

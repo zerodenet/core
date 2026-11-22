@@ -16,6 +16,8 @@ pub struct QuicTransportOptions {
     pub disable_path_mtu_discovery: bool,
 }
 impl QuicTransportOptions {
+    pub(crate) const MAX_DATAGRAM_BYTES: u16 = 1452;
+
     pub fn build(
         self,
         controller: Arc<dyn quinn::congestion::ControllerFactory + Send + Sync>,
@@ -66,6 +68,10 @@ impl QuicTransportOptions {
         config.datagram_receive_buffer_size(Some(1024 * 1024));
         if self.disable_path_mtu_discovery {
             config.mtu_discovery_config(None);
+        } else {
+            let mut discovery = quinn::MtuDiscoveryConfig::default();
+            discovery.upper_bound(Self::MAX_DATAGRAM_BYTES);
+            config.mtu_discovery_config(Some(discovery));
         }
         config.congestion_controller_factory(super::rate_limit::cap_factory(
             controller,
