@@ -190,6 +190,67 @@ mod shadowsocks;
 #[cfg(feature = "mieru")]
 mod mieru;
 
+#[cfg(any(feature = "mieru", feature = "shadowsocks", feature = "vmess"))]
+mod direct_tcp {
+    use super::Proxy;
+    use zero_platform_tokio::controlled_carrier::{
+        CarrierNativeKind, CarrierOriginObservation, CarrierOwnerRegistration,
+    };
+
+    pub(super) struct Original {
+        owner: CarrierOwnerRegistration,
+        native: CarrierOriginObservation,
+    }
+
+    impl Original {
+        pub(super) fn capture(proxy: &Proxy) -> Self {
+            let services = proxy.tcp_runtime_services();
+            let slot = services.components.as_ref().unwrap().direct(None).unwrap();
+            let owner = slot.original_carrier_owner(0).expect("actual Direct owner");
+            let observed = owner.observe().expect("live Direct owner");
+            let [stream] = observed.slots() else {
+                panic!("one actual Direct original for this TCP flow");
+            };
+            assert_eq!(stream.native().unwrap().kind(), CarrierNativeKind::Stream);
+            assert!(stream.physical_view_live() && stream.user_view_live());
+            let native = stream.original().clone();
+            assert!(native.closed().is_none());
+            Self { owner, native }
+        }
+
+        pub(super) fn assert_closed(&self) {
+            let closed = self.native.closed().expect("same Direct original closed");
+            assert!(self.native.matches_closed(&closed) && closed.had_native_acquisition());
+            assert!(self.owner.observe().is_none_or(|owner| {
+                owner.slots().iter().all(|slot| {
+                    !slot.original().same_original(&self.native)
+                        || (!slot.physical_view_live() && !slot.user_view_live())
+                })
+            }));
+        }
+    }
+}
+
+#[cfg(any(feature = "trojan", feature = "vmess"))]
+fn assert_tls_reads_closed(owner: &InboundOwner, cert: &std::path::Path, key: &std::path::Path) {
+    let report = owner.report.lock().unwrap();
+    for path in [cert, key] {
+        let native = format!(
+            "1 original file handles explicitly closed for {}",
+            path.display()
+        );
+        let joined = format!(
+            "1 original blocking file jobs joined for {}",
+            path.display()
+        );
+        assert!(report.closed_io.contains(&native), "missing {native}");
+        assert!(
+            report.released_resources.contains(&joined),
+            "missing {joined}"
+        );
+    }
+}
+
 #[cfg(feature = "raw-ip-runtime")]
 #[path = "tests/system_tun_budget.rs"]
 mod system_tun_budget;

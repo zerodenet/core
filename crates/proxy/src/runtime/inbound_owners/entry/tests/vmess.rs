@@ -75,7 +75,9 @@ async fn standard_sources_confirm_udp_originals_before_replacement_and_join_actu
         let mut candidate=(*proxy.engine().config()).clone();candidate.inbounds[0].listen.port=replacement.port();
         let handle=crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());drop(next);
         handle.apply_runtime_config_and_wait(candidate,Duration::from_secs(5)).await.unwrap();
-        let closed=original.terminal().expect("same old owner must be confirmed before replacement ACK");assert!(closed.failure().is_none());assert!(closed.task_failures().is_empty());assert_eq!(closed.joined_tasks(),5 + usize::from(grpc)); assert!(original_census.is_drained());assert_eq!(closed.closed_io_receipts(),3,"original listener, accepted TLS carrier and Direct UDP native provider");
+        let closed=original.terminal().expect("same old owner must be confirmed before replacement ACK");assert!(closed.failure().is_none());assert!(closed.task_failures().is_empty());assert_eq!(closed.joined_tasks(),5 + usize::from(grpc)); assert!(original_census.is_drained());
+        super::assert_tls_reads_closed(&original,&cert,&key);
+        assert_eq!(closed.closed_io_receipts(),5,"original listener, accepted TLS carrier, peer Direct UDP and two TLS file originals");
         let current=proxy.inbound_owners.owner("vmess-in").unwrap();let current_census = current.task_access().peer_registrar().retirement_observation().expect("same original Scope census"); assert!(!current_census.is_drained());assert_ne!(current.identity(),original_id);assert!(current.is_running());
         let target_tcp=TcpListener::bind("127.0.0.1:0").await.unwrap();let tcp_address=target_tcp.local_addr().unwrap();
         let carrier=connect(&connector,replacement,grpc).await;
@@ -85,10 +87,13 @@ async fn standard_sources_confirm_udp_originals_before_replacement_and_join_actu
         mux.write_all(&frame(2,address,2,b"udp")).await.unwrap();mux.flush().await.unwrap();let (size,peer)=target.recv_from(&mut bytes).await.unwrap();assert_eq!(&bytes[..size],b"udp");target.send_to(b"udp",peer).await.unwrap();
         let length=mux.read_u16().await.unwrap();let mut meta=vec![0;length as usize];mux.read_exact(&mut meta).await.unwrap();assert_eq!(&meta[..4],&[0,2,2,1]);let length=mux.read_u16().await.unwrap();let mut payload=vec![0;length as usize];mux.read_exact(&mut payload).await.unwrap();assert_eq!(payload,b"udp");
         { let mut byte=[0];let read=mux.read(&mut byte);tokio::pin!(read);std::future::poll_fn(|cx| { assert!(std::future::Future::poll(read.as_mut(),cx).is_pending());Poll::Ready(()) }).await; }
+        let direct=super::direct_tcp::Original::capture(&proxy);
         assert!(current.terminal().is_none());running.shutdown().await.unwrap();
         let closed=current.terminal().expect("same new source, no task marker or port probe");assert!(closed.failure().is_none());assert!(closed.task_failures().is_empty());
-        assert_eq!(closed.joined_tasks(),9 + usize::from(grpc),"Source, original accepted task, MUX reader/writer, TCP/UDP logical tasks, UDP driver and two continuity registrations"); assert!(current_census.is_drained());
-        assert_eq!(closed.closed_io_receipts(),4,"original listener, accepted TLS carrier, real TCP carrier and Direct UDP original provider");
+        assert_eq!(closed.joined_tasks(),10 + usize::from(grpc)); assert!(current_census.is_drained());
+        super::assert_tls_reads_closed(&current,&cert,&key);
+        assert_eq!(closed.closed_io_receipts(),5,"original listener, accepted TLS carrier, peer Direct UDP and two TLS file originals");
+        direct.assert_closed();
         }
     }).await.unwrap();
 }

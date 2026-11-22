@@ -37,6 +37,7 @@ async fn standard_udp_source_closes_its_original_scopes_and_native_providers() {
         let terminal=original.terminal().expect("same original owner, not a rebound port or task body marker");
         assert!(terminal.failure().is_none());assert!(terminal.task_failures().is_empty());
         assert_eq!(terminal.joined_tasks(),5,"Source, accepted carrier and actual Datagram continuity registrations"); assert!(original_census.is_drained());
-        assert_eq!(terminal.closed_io_receipts(),3,"original TCP listener, accepted carrier and peer Direct UDP native close receipts");
+        super::assert_tls_reads_closed(&original,&cert,&key);
+        assert_eq!(terminal.closed_io_receipts(),5,"original TCP listener, accepted carrier, peer Direct UDP and two TLS file originals");
     }).await.unwrap();
 }

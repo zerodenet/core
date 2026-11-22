@@ -120,6 +120,7 @@ let original_census = owner.task_access().peer_registrar().retirement_observatio
             2,
             "no synthetic flow for physical or stalled logical handshake"
         );
+        let direct = super::direct_tcp::Original::capture(&proxy);
         {
             let mut byte = [0];
             let read = target.read(&mut byte);
@@ -156,9 +157,10 @@ let original_census = owner.task_access().peer_registrar().retirement_observatio
         assert!(original_census.is_drained());
         assert_eq!(
             closed.closed_io_receipts(),
-            4,
-            "listener, accepted physical TCP, real TCP egress and UDP provider originals"
+            3,
+            "listener, accepted physical TCP and peer UDP provider originals"
         );
+        direct.assert_closed();
         assert_eq!(
             target.read(&mut bytes).await.unwrap(),
             0,

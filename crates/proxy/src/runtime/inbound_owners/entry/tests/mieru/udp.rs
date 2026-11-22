@@ -59,6 +59,7 @@ let original_census = owner.task_access().peer_registrar().retirement_observatio
         let mut udp = request(&connection, 3, "0.0.0.0:0".parse().unwrap()).await;
         udp_exchange(&mut udp, &target_udp, b"before").await;
         assert_eq!(proxy.active_sessions().len(), 2, "physical UDP peer and pending handshake are not business sessions");
+        let direct = super::super::direct_tcp::Original::capture(&proxy);
         let next = endpoint;
         let mut candidate = (*proxy.engine().config()).clone();
         let zero_config::InboundProtocolConfig::Mieru { users, .. } = &mut candidate.inbounds[0].protocol else { unreachable!() };
@@ -68,7 +69,8 @@ let original_census = owner.task_access().peer_registrar().retirement_observatio
         let closed = owner.terminal().expect("old original peer closure precedes replacement ACK");
         assert!(closed.failure().is_none()); assert!(closed.task_failures().is_empty());
         assert_eq!(closed.joined_tasks(), 9, "Source, real peer, physical driver, three logical tasks, original UDP response driver and two continuity registrations"); assert!(original_census.is_drained());
-        assert_eq!(closed.closed_io_receipts(), 3, "original UDP listener, TCP carrier, UDP egress; no invented accepted TCP original");
+        assert_eq!(closed.closed_io_receipts(), 2, "original UDP listener and peer UDP provider");
+        direct.assert_closed();
         assert_eq!(target.read(&mut bytes).await.unwrap(), 0);
         let current = original(&proxy).await; assert_ne!(current.identity(), owner.identity());
         let connection = client(next, USER, "replacement-password").await;

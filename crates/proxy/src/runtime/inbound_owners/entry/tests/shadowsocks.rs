@@ -76,10 +76,12 @@ let original_census = original.task_access().peer_registrar().retirement_observa
         let (mut accepted, _) = target.accept().await.unwrap(); let mut payload = [0;5]; accepted.read_exact(&mut payload).await.unwrap(); assert_eq!(&payload,b"after");
         let read = accepted.read(&mut payload); tokio::pin!(read);
         std::future::poll_fn(|cx| { assert!(std::future::Future::poll(read.as_mut(),cx).is_pending()); std::task::Poll::Ready(()) }).await;
+        let direct = super::direct_tcp::Original::capture(&proxy);
         running.shutdown().await.unwrap();
         let closed = current.terminal().expect("replacement original retained through shutdown");
         assert!(closed.failure().is_none()); assert!(closed.task_failures().is_empty());
-        assert_eq!(closed.closed_io_receipts(), 4, "both listener originals, accepted TCP and real egress original");
+        assert_eq!(closed.closed_io_receipts(), 3, "both listener originals and accepted TCP");
+        direct.assert_closed();
     }).await.unwrap();
 }
 
