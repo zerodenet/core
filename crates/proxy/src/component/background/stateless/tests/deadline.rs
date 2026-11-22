@@ -27,7 +27,7 @@ async fn actual_business_deadline_expires_with_deferred_auxiliary_host_ack_witho
         let binding=UpstreamBinding{prefix:vec![],dial:Default::default(),network_generation:zero_core::component::NetworkGeneration(egress.generation())};
         let facts=facts(&endpoint); let end=Instant::now()+std::time::Duration::from_secs(1);
         let demand=Arc::new(Demand(CancellationToken::new(),Some(end)));
-        let transport=UpstreamTransport::new(binding.clone(),Arc::new(Root{bound,host,peer,binding,egress,
+        let transport=UpstreamTransport::new(binding.clone(),Arc::new(Root{bound,host,peer,native_connect_timeout:None,binding,egress,
             caller:witness.clone(),demand:demand.clone(),facts:facts.clone()}));
         let transfers=Arc::new(Mutex::new(Vec::new()));
         let role=Outbound{control_only:false,inner:erase_stream(RawRole(endpoint.clone())),tasks:Some(scope.registrar()),

@@ -53,6 +53,9 @@ impl Caller {
         let host = installed.tasks();
         let owner = installed.owner();
         let native = NativeObligations::new(1, 1, 1);
+        native
+            .bind_source(installed.source_registrar().scope_identity())
+            .unwrap();
         installed.register(native.resource()).unwrap();
         let mut permit = native.reserve(ChildKind::Tcp).unwrap();
         let registration = permit.registration();
@@ -161,10 +164,8 @@ impl Caller {
         assert_eq!(actual.class(), witnessed.class());
         assert!(actual.failure().is_none());
         assert!(witnessed.result().is_ok());
-        assert!(
-            self.registration.carrier_completion().is_none(),
-            "caller exit and transport exit alone cannot mint native closure"
-        );
+        // A separately completed carrier can already have returned its own
+        // receipt. The caller join verified above makes no claim about it.
     }
 }
 
@@ -227,4 +228,8 @@ async fn raw_udp_admission_keeps_the_actual_registered_caller_and_source_metadat
         .finish(zero_engine::SessionOutcome::Cancelled)
         .unwrap();
     caller.join().await;
+    assert!(
+        caller.registration.carrier_completion().is_none(),
+        "a registration with no carrier does not produce a closure receipt"
+    );
 }

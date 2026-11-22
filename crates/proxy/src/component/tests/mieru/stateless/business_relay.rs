@@ -30,7 +30,9 @@ async fn ordinary_business_relays_keep_each_actual_original_until_views_caller_j
             for (index,tag) in tags.iter().enumerate() {
                 let slot=plan.configured(tag).unwrap();let ordinal=slot.recipe.spec().resources.iter().position(|resource|matches!(resource,ResourceDeclaration::ControlledNodeCarrier{..})).unwrap();
                 let registration=plan.original_carrier_owner(slot.instance_id(),ordinal).expect("same ordinary registered original owner");assert_eq!(registration.limit().get(),1);
-                let observed=registration.observe().unwrap();assert_eq!(observed.slots().len(),1,"one actual carrier at {tag}");let original=&observed.slots()[0];assert!(original.original().closed().is_none());assert!(original.driver().is_none());assert!(original.auxiliary().is_none());
+                let observed=registration.observe().unwrap();assert_eq!(observed.slots().len(),1,"one actual carrier at {tag}");let original=&observed.slots()[0];assert!(original.original().closed().is_none());assert!(original.driver().is_none());let setup=original.auxiliary().expect("actual original setup task");
+                let joined=setup.try_joined().expect("transport was published after setup joined");
+                assert!(setup.matches_joined(&joined)&&joined.result().is_ok()&&joined.registration_released());
                 if index==0 {assert!(original.borrowed_origin().is_none());assert!(original.native().is_some());} else {let donor=original.borrowed_origin().expect("authentic shorter protocol donor");let prior=plan.configured(&tags[index-1]).unwrap();assert_eq!(donor.instance(),prior.instance_id());assert_eq!(donor.native_origin().instance(),plan.configured(&tags[0]).unwrap().instance_id());}
                 originals.push(original.original().clone());registrations.push(registration);
             }

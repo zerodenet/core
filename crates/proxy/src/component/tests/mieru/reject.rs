@@ -55,7 +55,8 @@ async fn ordinary_proxy_failed_domain_resolution_closes_its_original_before_retu
             Err(error) => error,
         };
         assert_eq!(error.reason, Reason::Io, "{error}");
-        query.task.wait().await;
+        let joined = query.task.wait_registration_released().await;
+        assert!(query.task.matches_joined(&joined) && joined.registration_released());
         assert!(original.closed().unwrap().matches(&original));
         assert!(original.closed().unwrap().had_native_acquisition());
         std::future::poll_fn(|cx| {

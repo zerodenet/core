@@ -9,6 +9,8 @@ async fn cancelling_first_tunnel_ack_waiter_keeps_the_actual_pool_borrowed_by_a_
         let address = listener.local_addr().unwrap();
         let stop = CancellationToken::new();
         let stopped = stop.clone();
+        let retiring = CancellationToken::new();
+        let host_retiring = retiring.clone();
         let (waiting_tx, waiting) = tokio::sync::oneshot::channel();
         let accepts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let count = accepts.clone();
@@ -28,7 +30,15 @@ async fn cancelling_first_tunnel_ack_waiter_keeps_the_actual_pool_borrowed_by_a_
             let mut streams = tokio::task::JoinSet::new();
             loop {
                 let next = tokio::select! { _ = stopped.cancelled() => break, next = connection.accept_next() => next };
-                let Some(next) = next.unwrap() else { break; };
+                let next = match next {
+                    Ok(Some(next)) => next,
+                    Ok(None) => break,
+                    // The peer can observe a reset when the host closes its
+                    // original socket. Native closure is verified by the
+                    // host's matching receipt below.
+                    Err(_) if host_retiring.is_cancelled() => break,
+                    Err(error) => panic!("live Mieru carrier failed: {error}"),
+                };
                 let route = connection.accept_route(next).await.unwrap();
                 assert!(matches!(&route, mieru::inbound::MieruInboundAcceptedSession::Udp { .. }), "DNS must use the same actual UDP ASSOCIATE role");
                 let stopped = stopped.clone();
@@ -97,6 +107,7 @@ async fn cancelling_first_tunnel_ack_waiter_keeps_the_actual_pool_borrowed_by_a_
         request.answer(false, false);
         third.await.unwrap().unwrap();
         third_caller.task.wait().await;
+        retiring.cancel();
         running.shutdown().await.unwrap();
         assert!(pool.driver().unwrap().is_joined());
         assert!(pool.closed().unwrap().matches(&pool));

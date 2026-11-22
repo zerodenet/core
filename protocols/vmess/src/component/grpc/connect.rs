@@ -175,24 +175,38 @@ impl Managed {
             let actual = owner.clone();
             let input = context.clone();
             let tls = prepared_tls.clone();
+            let on_scope = preparation.is_some();
             let acquiring = async move {
                 let upstream = selected_upstream;
                 let owner = actual;
                 let context = &input;
-                let io = if service && !upstream.binding().prefix.is_empty() {
-                    let loan = upstream
-                        .borrow_stream(owner.options.base.endpoint.clone(), call.clone())
-                        .await?;
-                    grant.adopt_service_stream_loan(
-                        upstream.binding(),
-                        owner.options.base.endpoint.clone(),
-                        &call,
-                        loan,
-                    )
+                let acquire = async {
+                    if service && !upstream.binding().prefix.is_empty() {
+                        let loan = upstream
+                            .borrow_stream(owner.options.base.endpoint.clone(), call.clone())
+                            .await?;
+                        grant.adopt_service_stream_loan(
+                            upstream.binding(),
+                            owner.options.base.endpoint.clone(),
+                            &call,
+                            loan,
+                        )
+                    } else {
+                        upstream
+                            .acquire_controlled_stream(
+                                owner.options.base.endpoint.clone(),
+                                call,
+                                grant,
+                            )
+                            .await
+                    }
+                };
+                // The inline caller observes the phase of its actual suspension.
+                // TLS and H2 preparation own their separate Handshake wait.
+                let io = if on_scope {
+                    acquire.await
                 } else {
-                    upstream
-                        .acquire_controlled_stream(owner.options.base.endpoint.clone(), call, grant)
-                        .await
+                    owner.wait(context, Stage::Dial, acquire).await
                 }?;
                 owner.prepare_transport(io, tls, context).await
             };
@@ -201,7 +215,7 @@ impl Managed {
                     .prepare_on_scope(&record, preparation, context, dns_generation, acquiring)
                     .await
             } else {
-                owner.wait(context, Stage::Dial, acquiring).await
+                acquiring.await
             }
             .map_err(|error| owner.admission.attach(error, session))
             {

@@ -68,6 +68,7 @@ async fn same_taskless_record_keeps_n1_through_real_business_join_and_deferred_h
             bound,
             host,
             peer,
+            native_connect_timeout: None,
             binding: binding.clone(),
             egress,
             caller: witness.clone(),

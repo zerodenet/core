@@ -108,6 +108,29 @@ fn report(source: Arc<io::Error>, component: zero_core::component::ComponentId) 
     error.component.get_or_insert(component);
     error.with_source(Source(source))
 }
+fn returned_dial_rejection(source: &io::Error) -> bool {
+    source
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<ChannelError>())
+        .is_some_and(|error| {
+            error.stage == Stage::Dial
+                && error.impact == Impact::Session
+                && error.delivery == DeliveryState::NotSubmitted
+                && zero_platform_tokio::controlled_carrier::is_connect_rejection(error)
+        })
+}
+fn deliver(source: Arc<io::Error>, component: zero_core::component::ComponentId) -> io::Error {
+    let kind = source.kind();
+    let rejected = returned_dial_rejection(&source);
+    let mut error = report(source, component);
+    if rejected {
+        // A nested pool initializer receives the same provider rejection.
+        // Keep its request impact through each prefix. The task retains it
+        // as a component fault if the setup receiver disappears.
+        error.impact = Impact::Session;
+    }
+    io::Error::new(kind, error)
+}
 struct CancelOnDrop(Option<zero_platform_tokio::contract::CancellationToken>);
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
@@ -140,25 +163,36 @@ where
             };
             let outcome = tokio::select! {biased;
                 _=operation_stop.cancelled()=>{
-                    let _=complete.send(Err(Arc::new(io::Error::from(io::ErrorKind::Interrupted))));
+                    let _=complete.send((Err(Arc::new(io::Error::from(io::ErrorKind::Interrupted))), None));
                     return Ok(());
                 },
                 _=record_stop.cancelled()=>{
-                    let _=complete.send(Err(Arc::new(io::Error::from(io::ErrorKind::Interrupted))));
+                    let _=complete.send((Err(Arc::new(io::Error::from(io::ErrorKind::Interrupted))), None));
                     return Ok(());
                 },
                 result=operation(witness)=>result,
             };
             match outcome {
                 Ok(prepared) => {
-                    let _ = complete.send(Ok(prepared));
+                    let _ = complete.send((Ok(prepared), None));
                     Ok(())
                 }
                 Err(source) => {
                     let source = Arc::new(source);
-                    let _ = complete.send(Err(source.clone()));
-                    // The actual Scope retains this original error even if the
-                    // waiting operation disappears before receiving its result.
+                    if returned_dial_rejection(&source) {
+                        // This is the provider's ordinary negative result.
+                        // Confirm that the actual setup receiver obtained it
+                        // before the worker exits. An abandoned receiver leaves
+                        // the original fault intact for the owning Scope.
+                        let (received, observed) = tokio::sync::oneshot::channel();
+                        if complete.send((Err(source.clone()), Some(received))).is_ok()
+                            && observed.await.is_ok()
+                        {
+                            return Ok(());
+                        }
+                    } else {
+                        let _ = complete.send((Err(source.clone()), None));
+                    }
                     Err(report(source, component))
                 }
             }
@@ -169,7 +203,10 @@ where
     begin
         .send(witness.clone())
         .map_err(|_| io::ErrorKind::Interrupted)?;
-    let outcome = completed.await.map_err(|_| io::ErrorKind::Interrupted)?;
+    let (outcome, receipt) = completed.await.map_err(|_| io::ErrorKind::Interrupted)?;
+    if let Some(receipt) = receipt {
+        let _ = receipt.send(());
+    }
     // This is the actual host Scope's consumed auxiliary witness, not task body
     // completion. Accept its original failure before reusing the one task slot.
     let joined = adoption
@@ -193,7 +230,7 @@ where
         }
     } else {
         return match outcome {
-            Err(source) => Err(io::Error::new(source.kind(), report(source, component))),
+            Err(source) => Err(deliver(source, component)),
             Ok(_) => Err(io::ErrorKind::Interrupted.into()),
         };
     }
@@ -202,5 +239,5 @@ where
     if outcome.is_ok() {
         drop(cancel_on_drop.0.take());
     }
-    outcome.map_err(|source| io::Error::new(source.kind(), report(source, component)))
+    outcome.map_err(|source| deliver(source, component))
 }

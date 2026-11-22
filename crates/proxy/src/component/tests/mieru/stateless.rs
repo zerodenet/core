@@ -177,9 +177,9 @@ async fn ordinary_taskless_protocol_prefixes_transfer_their_actual_original_to_t
                 assert_eq!(c.accepts.load(Ordering::SeqCst), 1);
                 prior = Some((last, middle, root));
             }
-            // A third real query retains a child while the original prefix's
-            // credentials change. The host must settle that actual query,
-            // both actual drivers and all original controls before ACK.
+            // An outbound-only change cannot cancel an in-flight DNS query
+            // on the unchanged resolver profile. The cold replacement stays
+            // fenced until the actual query returns its donated child.
             let (query, request, observed) =
                 querying(&proxy, &mut dns, format!("{protocol}.replacement.test")).await;
             let (child, last, middle, root) = lineage(&observed);
@@ -202,19 +202,33 @@ async fn ordinary_taskless_protocol_prefixes_transfer_their_actual_original_to_t
                 }
                 _ => unreachable!(),
             }
+            let error = handle
+                .apply_runtime_config_and_wait(config.clone(), Duration::from_secs(5))
+                .await
+                .unwrap_err();
+            assert!(
+                error.contains("actual DNS query or blocking worker remains live"),
+                "{error}"
+            );
+            assert!(!observed.task.is_joined());
+            assert!(child.closed().is_none());
+            assert!(
+                last.closed().is_none() && middle.closed().is_none() && root.closed().is_none()
+            );
+
+            query.abort();
+            assert!(query.await.unwrap_err().is_cancelled());
+            drop(request);
+            let joined = observed.task.wait_registration_released().await;
+            assert!(observed.task.matches_joined(&joined) && joined.registration_released());
+            let returned = child
+                .closed()
+                .expect("the cancelled query returned its actual child");
+            assert!(returned.matches(&child) && !returned.had_native_acquisition());
             handle
                 .apply_runtime_config_and_wait(config, Duration::from_secs(10))
                 .await
                 .unwrap();
-            assert!(
-                observed.task.is_joined(),
-                "replacement ACK follows actual waiting query cleanup"
-            );
-            assert!(query.await.unwrap().is_err());
-            let returned = child
-                .closed()
-                .expect("replacement settled the actual query child");
-            assert!(returned.matches(&child) && !returned.had_native_acquisition());
             for donor in [&last, &middle] {
                 assert!(donor.driver().unwrap().is_joined());
                 assert!(donor.closed().unwrap().matches(donor));
@@ -231,7 +245,7 @@ async fn ordinary_taskless_protocol_prefixes_transfer_their_actual_original_to_t
                 "replacement never eagerly opens a second pool"
             );
             assert_eq!(c.accepts.load(Ordering::SeqCst), 1);
-            drop(request);
+
             running.shutdown().await.unwrap();
             b.close().await;
             c.close().await;

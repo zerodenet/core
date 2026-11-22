@@ -5,8 +5,8 @@ mod peer;
 #[tokio::test]
 async fn domain_bnd_keeps_the_actual_node_query_and_both_socks_originals_until_final_retirement() {
     tokio::time::timeout(Duration::from_secs(25), async {
-        let prefix = peer::Peer::new().await;
         let server = Server::packet(true).await;
+        let prefix = peer::Peer::new(server.address).await;
         let mut dns = Dns::new().await;
         let mut settings = detoured(&dns, &server);
         let zero_config::OutboundProtocolConfig::Mieru { transport, .. } =

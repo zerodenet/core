@@ -202,11 +202,19 @@ impl StreamOutbound for Outbound {
             ));
         }
         if request.destination.port == 0 {
-            return Err(self.admission.error(
+            let failure = self.admission.error(
                 session,
                 Stage::Prepare,
                 Reason::InvalidConfig,
                 DeliveryState::NotSubmitted,
+            );
+            return Err(failure.with_source(
+                zero_platform_tokio::contract::network::UpstreamRejection::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "VLESS target port is zero",
+                    ),
+                ),
             ));
         }
         let bytes = self

@@ -78,6 +78,7 @@ struct Root {
     bound: CarrierOwnerBinding,
     host: Arc<CancellationToken>,
     peer: std::net::SocketAddr,
+    native_connect_timeout: Option<std::time::Duration>,
     binding: UpstreamBinding,
     egress: Arc<zero_platform_tokio::EgressInterfaceControl>,
     caller: TaskJoinWitness,
@@ -132,9 +133,13 @@ impl UpstreamOpener for Root {
                     None,
                 )?
             };
+            let end = call.deadline.or_else(|| {
+                self.native_connect_timeout
+                    .map(|timeout| Instant::now() + timeout)
+            });
             Ok(native
                 .prepare_controlled_stream(&binding, endpoint, call.clone(), grant)?
-                .open_with_deadline(call.deadline)
+                .open_with_deadline(end)
                 .await?
                 .into_parts()
                 .0)

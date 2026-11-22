@@ -48,15 +48,21 @@ pub(in crate::component::tests::mieru) async fn run(
                 tokio::select! {
                     packet=responder.read_inbound_dispatch_tokio(&mut stream)=>{
                         let Ok(Some(packet))=packet else {break;};
-                    if forward {
-                        if !injected {
-                            let noise=UdpSocket::bind("127.0.0.1:0").await.unwrap();
-                            noise.send_to(b"unrelated UDP source",socket.local_addr().unwrap()).await.unwrap();
-                            injected=true;
+                        if forward {
+                            if !injected {
+                                let noise=UdpSocket::bind("127.0.0.1:0").await.unwrap();
+                                noise.send_to(b"unrelated UDP source",socket.local_addr().unwrap()).await.unwrap();
+                                injected=true;
+                            }
+                            socket.send_to(packet.payload(),(host(packet.target()).as_str(),packet.port())).await.unwrap();
                         }
-                        socket.send_to(packet.payload(),(host(packet.target()).as_str(),packet.port())).await.unwrap();
-                    }
-                        else {responder.write_response_for_target_tokio(&mut stream,packet.target(),packet.port(),packet.payload()).await.unwrap();}
+                        else if responder.write_response_for_target_tokio(
+                            &mut stream, packet.target(), packet.port(), packet.payload(),
+                        ).await.is_err() {
+                            // The client can return the logical stream after it
+                            // reads the last response, while the peer is flushing.
+                            break;
+                        }
                     }
                     result=socket.recv_from(&mut bytes),if forward=>{
                         let (size,peer)=result.unwrap();let address=match peer.ip() {std::net::IpAddr::V4(ip)=>Address::Ipv4(ip.octets()),std::net::IpAddr::V6(ip)=>Address::Ipv6(ip.octets())};

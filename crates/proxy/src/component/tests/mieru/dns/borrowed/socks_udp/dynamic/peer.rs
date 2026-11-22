@@ -14,7 +14,7 @@ pub(super) struct Peer {
     task: tokio::task::JoinHandle<()>,
 }
 impl Peer {
-    pub(super) async fn new() -> Self {
+    pub(super) async fn new(expected_target: SocketAddr) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let control = listener.local_addr().unwrap();
         let relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -57,8 +57,9 @@ impl Peer {
                             let target = match packet.target() {
                                 Address::Ipv4(ip) => SocketAddr::new((*ip).into(), packet.port()),
                                 Address::Ipv6(ip) => SocketAddr::new((*ip).into(), packet.port()),
-                                Address::Domain(_) => panic!("fixture's Mieru physical target is literal"),
+                                Address::Domain(host) => SocketAddr::new(host.parse().expect("literal target in the SOCKS domain field"), packet.port()),
                             };
+                            assert_eq!(target, expected_target);
                             relay.send_to(packet.payload(), target).await.unwrap();
                         } else if let Some(client) = client {
                             let source = match peer.ip() {

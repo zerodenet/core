@@ -152,15 +152,32 @@ async fn actual_domain_pool_bootstrap_cycle_is_rejected_before_either_purpose_st
     settings.servers.insert("native".into(), detour);
     settings.policy.node_server = Some("native".into());
     config.runtime.dns = Some(settings);
-    let error =
-        Proxy::new(config).expect_err("the actual domain pool cannot bootstrap through itself");
-    let zero_engine::EngineError::Config(zero_config::ConfigError::InvalidDns(error)) = error
-    else {
-        panic!("expected the original Node detour isolation error: {error}")
-    };
-    // Structural validation rejects this actual recursion before the host can
-    // admit either purpose. A Node detour cannot form a legal component graph.
-    assert_eq!(error, "node DNS server `native` must not use a detour");
+    let error = crate::adapters::node_dns::validate(&config).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+    assert_eq!(
+        error.to_string(),
+        "Node DNS detour itself requires Node resolution"
+    );
+
+    let (proxy, running, _) = start(config).await;
+    let services = proxy.tcp_runtime_services();
+    assert!(services
+        .components
+        .as_ref()
+        .unwrap()
+        .configured("a")
+        .is_none());
+    let (default, node) = tokio::time::timeout_at(deadline(), async {
+        tokio::join!(
+            proxy.resolver.resolve_real_type("default-cycle.test", 1),
+            proxy.resolver.resolve_node("node-cycle.test")
+        )
+    })
+    .await
+    .unwrap();
+    assert!(default.is_err());
+    assert!(node.is_err());
     dns.no_new_request();
+    running.shutdown().await.unwrap();
     dns.close().await;
 }

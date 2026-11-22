@@ -57,7 +57,7 @@ async fn persistent_prefix_business_suffix_keeps_original_custody_through_confir
         let running = proxy.spawn();
         let handle = ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
         handle.apply_runtime_config_and_wait(config.clone(), Duration::from_secs(5)).await.unwrap();
-        let mut held = loan(&proxy).await;
+        let mut held = try_loan(&proxy).await.expect("initial persistent prefix loan");
         let original = held.owner.original().clone();
         let plan = proxy.tcp_runtime_services().components.as_ref().unwrap().clone();
         for tag in ["a", "b", "c", "unused"] {
@@ -168,7 +168,7 @@ async fn persistent_prefix_business_suffix_keeps_original_custody_through_confir
             assert!(driver.matches_joined(&driver.try_joined().unwrap()));
             current = prior.parent();
         }
-        let mut fresh = loan(&proxy).await;
+        let mut fresh = try_loan(&proxy).await.expect("published replacement prefix loan");
         assert!(!fresh.owner.original().same_original(&original));
         for server in [&a, &b, &c] {
             assert_eq!(server.accepts.load(Ordering::SeqCst), 2);

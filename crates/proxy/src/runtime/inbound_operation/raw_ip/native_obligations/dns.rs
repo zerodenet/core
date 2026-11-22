@@ -33,7 +33,7 @@ impl DnsCall {
     }
 }
 impl NativeObligations {
-    pub(in crate::runtime::inbound_operation::raw_ip) fn bind_source(
+    pub(crate) fn bind_source(
         &self,
         scope: zero_platform_tokio::contract::scope::TaskScopeIdentity,
     ) -> Result<(), ChannelError> {

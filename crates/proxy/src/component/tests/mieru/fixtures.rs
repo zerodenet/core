@@ -100,8 +100,7 @@ pub(super) async fn loan(proxy: &Proxy) -> StreamLoan {
 pub(super) async fn try_loan(proxy: &Proxy) -> Result<StreamLoan, ChannelError> {
     let (c, context) = role_context(proxy);
     c.stream(deadline())
-        .await
-        .unwrap()
+        .await?
         .connect_carrier(
             ConnectRequest {
                 destination: destination(),
