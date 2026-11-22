@@ -156,12 +156,34 @@ async fn ordinary_vless_trojan_mux_prefix_udp_keeps_actual_pool_accounting_and_s
                 assert_eq!(alias.dependency_instances(), migrated.dependency_instances());
                 drop(cold);
                 assert_eq!(registration.observe().unwrap().retained(),1,"no compatibility physical pool may be started");assert!(physical.closed().is_none());
-                close_flow(&proxy,business).await;server.finish().await;proxy.protocols.shutdown_components(end()).await.unwrap();
-                assert!(physical.matches_closed(&physical.closed().unwrap()));assert!(driver.is_joined());assert!(registration.closed().unwrap().matches(&registration));
-                // The actual cached producer/flow remains held throughout the
-                // original's close. Its old writer must not pin the native pool.
-                let mut retained=retained_sender.unwrap();let mut stale=input(port,b"retired");stale.target=Address::Ipv4([127,0,0,1]);stale.route_target=Some(Address::Domain("pool.test".into()));
-                assert!(retained.dispatch(stale).await.is_err());retained.finish_all().await;
+                close_flow(&proxy, business).await;
+                server.finish().await;
+                let mut retained = retained_sender.unwrap();
+                let sessions = proxy.engine().active_sessions();
+                let [session] = sessions.as_slice() else { panic!("one live transferred MUX association"); };
+                assert_eq!(session.outbound_tag.as_deref(), Some("pool"));
+                let pending = proxy.protocols.shutdown_components(end()).await.unwrap_err();
+                let failure = crate::transport::channel_failure(&pending).expect("original retirement failure");
+                assert_eq!(failure.stage, zero_platform_tokio::contract::Stage::Close);
+                assert_eq!(failure.reason, zero_platform_tokio::contract::Reason::Timeout);
+                assert_eq!(failure.component, Some(registration.instance().component));
+                let joined = driver.try_joined().expect("original wire driver joined before the user returned");
+                assert!(driver.matches_joined(&joined) && joined.registration_released());
+                let held = registration.observe().unwrap();
+                let [slot] = held.slots() else { panic!("one original pool carrier still has the transferred user"); };
+                assert!(slot.original().same_original(&physical) && slot.user_view_live());
+                assert!(registration.users_closed().is_none());
+                let socket_close = physical.closed().expect("same socket closed before the user returned");
+                assert!(physical.matches_closed(&socket_close) && socket_close.had_native_acquisition());
+                let mut stale = input(port, b"retired");
+                stale.target = Address::Ipv4([127,0,0,1]);
+                stale.route_target = Some(Address::Domain("pool.test".into()));
+                assert!(retained.dispatch(stale).await.is_err());
+                close_flow(&proxy, retained).await;
+                proxy.protocols.shutdown_components(end()).await.unwrap();
+                assert!(physical.matches_closed(&physical.closed().unwrap()));
+                assert!(registration.closed().unwrap().matches(&registration));
+                assert!(registration.users_closed().unwrap().matches(&registration));
             }).await;
             stop.cancel();worker.await.unwrap();pool.close().await;
         }
