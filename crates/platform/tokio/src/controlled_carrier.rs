@@ -129,12 +129,25 @@ pub fn original_connect_error(error: &ChannelError) -> Option<&crate::TcpConnect
 /// connect retry selection or permit a cleanup failure to be consumed here.
 pub fn is_connect_rejection(error: &ChannelError) -> bool {
     original_connect_error(error).is_some()
-        || (error.impact == crate::contract::Impact::Session
-            && error.cleanup_failure_receipt().is_none()
+        || (error.cleanup_failure_receipt().is_none()
             && matches!(
-                (error.stage, error.reason, error.delivery),
-                (Stage::Dial, Reason::Io, DeliveryState::NotSubmitted)
-                    | (Stage::Handshake, Reason::Protocol, DeliveryState::Unknown)
+                (error.impact, error.stage, error.reason, error.delivery),
+                (
+                    crate::contract::Impact::Session,
+                    Stage::Dial,
+                    Reason::Io,
+                    DeliveryState::NotSubmitted
+                ) | (
+                    crate::contract::Impact::Session,
+                    Stage::Handshake,
+                    Reason::Protocol,
+                    DeliveryState::Unknown
+                ) | (
+                    crate::contract::Impact::Component,
+                    Stage::Prepare,
+                    Reason::Capacity,
+                    DeliveryState::NotSubmitted
+                )
             )
             && crate::contract::network::UpstreamRejection::present_in(error))
 }

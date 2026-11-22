@@ -78,15 +78,14 @@ impl ComponentSlot {
                 .process
                 .reserve_declared(self.instance_id(), ordinal)
                 .map_err(|source| {
-                    self.failure(
-                        if source.kind() == std::io::ErrorKind::WouldBlock {
-                            Reason::Capacity
-                        } else {
-                            Reason::StalePlan
-                        },
-                        "actual process declaration admission refused",
-                    )
-                    .with_source(source)
+                    let refused = "actual process declaration admission refused";
+                    if source.kind() == std::io::ErrorKind::WouldBlock {
+                        self.failure(Reason::Capacity, refused).with_source(
+                            zero_platform_tokio::contract::network::UpstreamRejection::new(source),
+                        )
+                    } else {
+                        self.failure(Reason::StalePlan, refused).with_source(source)
+                    }
                 })?;
             assert!(
                 self.prepaid_process.set(paid).is_ok(),

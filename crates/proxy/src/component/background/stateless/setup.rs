@@ -60,8 +60,7 @@ impl Outbound {
                 Err(source) => {
                     let source = Arc::new(source);
                     if let Some(owner) = result_owner.as_ref().filter(|_| {
-                        zero_platform_tokio::controlled_carrier::original_connect_error(&source)
-                            .is_some()
+                        zero_platform_tokio::controlled_carrier::is_connect_rejection(&source)
                     }) {
                         // Retain this same native result before the actual Aux
                         // exits. Its later ACK and original close remain owed.

@@ -1,6 +1,6 @@
 use std::{error::Error, fmt, io};
 
-/// A provider received an explicit negative response to its setup request.
+/// A provider returned an explicit rejection of the setup request.
 /// Preserve the provider's diagnostic. This fact grants no retry, close,
 /// registration release or permission to deliver a carrier.
 #[derive(Debug)]
