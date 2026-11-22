@@ -12,6 +12,13 @@ pub struct WebSocketSocket<S> {
     read_buffer: Vec<u8>,
     read_offset: usize,
     heartbeat: Option<heartbeat::Heartbeat>,
+    close: CloseState,
+}
+
+enum CloseState {
+    Frame,
+    TransportFlush,
+    Complete,
 }
 
 impl<S> WebSocketSocket<S> {
@@ -21,6 +28,7 @@ impl<S> WebSocketSocket<S> {
             read_buffer: Vec::new(),
             read_offset: 0,
             heartbeat: None,
+            close: CloseState::Frame,
         }
     }
 }
@@ -150,13 +158,20 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), std::io::Error>> {
         use futures_util::SinkExt;
+        use std::task::{ready, Poll};
 
-        let inner = &mut self.inner;
-        match inner.poll_close_unpin(cx) {
-            std::task::Poll::Ready(Ok(())) => std::task::Poll::Ready(Ok(())),
-            std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Err(std::io::Error::other(e))),
-            std::task::Poll::Pending => std::task::Poll::Pending,
+        if matches!(self.close, CloseState::Frame) {
+            ready!(self.inner.poll_close_unpin(cx)).map_err(io::Error::other)?;
+            self.close = CloseState::TransportFlush;
         }
+        if matches!(self.close, CloseState::TransportFlush) {
+            // A server can report WebSocket ConnectionClosed after writing
+            // the close frame but before flushing the transport beneath it.
+            // Flush that buffered frame without closing the read direction.
+            ready!(std::pin::Pin::new(self.inner.get_mut()).poll_flush(cx))?;
+            self.close = CloseState::Complete;
+        }
+        Poll::Ready(Ok(()))
     }
 }
 

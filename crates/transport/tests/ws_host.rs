@@ -35,3 +35,30 @@ async fn websocket_host_override_replaces_dial_authority_without_duplicate_heade
         .expect("connect with landing authority");
     server_task.await.unwrap();
 }
+
+#[tokio::test]
+async fn websocket_shutdown_flushes_the_server_close_through_a_buffered_transport() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, BufStream};
+    use tokio_tungstenite::{tungstenite::protocol::Role, tungstenite::Message, WebSocketStream};
+
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let (client, server) = tokio::io::duplex(4096);
+        let server = async {
+            let wire =
+                WebSocketStream::from_raw_socket(BufStream::new(server), Role::Server, None).await;
+            let mut socket = zero_transport::ws::WebSocketSocket::new(wire);
+            assert_eq!(socket.read(&mut [0; 1]).await.unwrap(), 0);
+            socket.shutdown().await.unwrap();
+            socket.shutdown().await.unwrap();
+        };
+        let client = async {
+            let mut socket = WebSocketStream::from_raw_socket(client, Role::Client, None).await;
+            socket.send(Message::Close(None)).await.unwrap();
+            assert_eq!(socket.next().await.unwrap().unwrap(), Message::Close(None));
+        };
+        tokio::join!(server, client);
+    })
+    .await
+    .unwrap();
+}
