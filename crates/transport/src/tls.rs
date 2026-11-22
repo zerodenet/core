@@ -247,3 +247,16 @@ where
 {
     connect_tls_stream_with_profile(stream, tls, base_dir, default_server_name).await
 }
+
+/// A real peer certificate failed the Rustls verifier during the handshake.
+pub fn is_peer_certificate_rejection(error: &RuntimeError) -> bool {
+    let RuntimeError::Io(error) = error else {
+        return false;
+    };
+    matches!(
+        error
+            .get_ref()
+            .and_then(|cause| cause.downcast_ref::<rustls::Error>()),
+        Some(rustls::Error::InvalidCertificate(_))
+    )
+}

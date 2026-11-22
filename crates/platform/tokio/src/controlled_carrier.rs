@@ -140,6 +140,11 @@ pub fn is_connect_rejection(error: &ChannelError) -> bool {
                 ) | (
                     crate::contract::Impact::Session,
                     Stage::Handshake,
+                    Reason::Io,
+                    DeliveryState::NotSubmitted
+                ) | (
+                    crate::contract::Impact::Session,
+                    Stage::Handshake,
                     Reason::Protocol,
                     DeliveryState::Unknown
                 ) | (

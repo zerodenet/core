@@ -49,15 +49,19 @@ impl Managed {
         let tag = owner
             .wait(context, Stage::Handshake, async {
                 preparing.await.map_err(|source| {
-                    owner
-                        .admission
-                        .error(
-                            session,
-                            Stage::Handshake,
-                            Reason::Io,
-                            DeliveryState::NotSubmitted,
+                    let failure = owner.admission.error(
+                        session,
+                        Stage::Handshake,
+                        Reason::Io,
+                        DeliveryState::NotSubmitted,
+                    );
+                    if zero_transport::tls::is_peer_certificate_rejection(&source) {
+                        failure.with_source(
+                            zero_platform_tokio::contract::network::UpstreamRejection::new(source),
                         )
-                        .with_source(source)
+                    } else {
+                        failure.with_source(source)
+                    }
                 })
             })
             .await?;

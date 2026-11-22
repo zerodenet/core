@@ -73,18 +73,54 @@ async fn ordinary_vmess_grpc_ca_untrusted_peer_fails_real_tls_before_udp_submiss
         let port=listener.local_addr().unwrap().port();
         let proxy=proxy_with_protocol_at(serde_json::json!({"type":"vmess","server":"127.0.0.1","port":port,"id":ID,"cipher":"aes-128-gcm","grpc":{"service_names":["test/Tun"]},"tls":{"server_name":"localhost","ca_cert_path":"ca.pem","alpn":["h2"]}}),serde_json::json!({"final":{"type":"route","outbound":"node"}}),true,Some(dir.path().to_path_buf())).await;
         std::fs::remove_file(dir.path().join("ca.pem")).unwrap();
+        let (accepted, wire_pending) = tokio::sync::oneshot::channel();
+        let (release, handshake) = tokio::sync::oneshot::channel();
         let server=tokio::spawn(async move {
             let (stream,_)=listener.accept().await.unwrap();
+            accepted.send(()).unwrap();
+            handshake.await.unwrap();
             assert!(zero_transport::tls::accept_tls_handshake(&acceptor,zero_platform_tokio::TokioSocket::new(stream)).await.is_err());
         });
         let registration=original(&proxy);
-        crate::runtime::udp_ingress::test_source::run(&proxy, |_, source| async move {
+        let observed = registration.clone();
+        let original = crate::runtime::udp_ingress::test_source::run(&proxy, |_, source| async move {
             let mut dispatch=source.new_dispatch("untrusted").await.unwrap();
-            assert!(dispatch.dispatch(input(53,b"must-not-submit")).await.is_err());
+            let (error, (setup, original)) = {
+                let opening = dispatch.dispatch(input(53, b"must-not-submit"));
+                tokio::pin!(opening);
+                let (setup, original) = tokio::select! {
+                    biased;
+                    result = &mut opening => panic!("TLS cannot finish before the peer handshake: {result:?}"),
+                    ready = async {
+                        wire_pending.await.unwrap();
+                        loop {
+                            let view = observed.observe().unwrap();
+                            let [slot] = view.slots() else { panic!("one actual TLS original"); };
+                            if slot.physical_view_live() && slot.native().is_some() {
+                                break (slot.auxiliary().unwrap().clone(), slot.original().clone());
+                            }
+                            tokio::task::yield_now().await;
+                        }
+                    } => ready,
+                };
+                assert!(!setup.is_joined());
+                release.send(()).unwrap();
+                (opening.await.unwrap_err(), (setup, original))
+            };
+            assert_retained_rejection(
+                &error, &setup,
+                zero_platform_tokio::contract::Stage::Handshake,
+                zero_platform_tokio::contract::Reason::Io,
+                zero_platform_tokio::contract::DeliveryState::NotSubmitted,
+            );
             dispatch.finish_all();
+            original
         }).await;
         server.await.unwrap();
         proxy.protocols.shutdown_components(Instant::now()+Duration::from_secs(3)).await.unwrap();
+        let closed = original.closed().expect("same rejected TLS native original closed");
+        assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
         assert!(registration.closed().unwrap().matches(&registration));
+        assert!(registration.users_closed().unwrap().matches(&registration));
     }).await.unwrap();
 }
