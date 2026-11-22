@@ -5,6 +5,43 @@ use std::{
     future::{poll_fn, Future},
     task::Poll,
 };
+use zero_core::component::ComponentInstanceId;
+use zero_platform_tokio::contract::lifecycle::ResourceFailure;
+
+fn carrier_faults(
+    originals: &crate::HostOriginalBudgets,
+) -> BTreeMap<ComponentInstanceId, Vec<Arc<ResourceFailure>>> {
+    let mut by_instance: BTreeMap<_, Vec<_>> = BTreeMap::new();
+    for fault in originals.carrier.resource_failures() {
+        by_instance.entry(fault.instance).or_default().push(fault);
+    }
+    by_instance
+}
+
+fn receive_resource_fault(
+    slot: &ComponentSlot,
+    faults: &mut BTreeMap<ComponentInstanceId, Vec<Arc<ResourceFailure>>>,
+) -> Option<Arc<ResourceFailure>> {
+    slot.observe_resource_faults(faults.remove(&slot.instance_id()).into_iter().flatten())
+}
+
+fn poll_component_slots<'a>(
+    slots: impl IntoIterator<Item = &'a ComponentSlot> + Clone,
+    target: &Arc<WaitTarget>,
+    originals: &crate::HostOriginalBudgets,
+) {
+    for slot in slots.clone() {
+        slot.poll_tasks(target);
+    }
+    // All slots share one original book. Receive its current sources once per
+    // pass and deliver them only to the matching generation's own receiver.
+    let mut faults = carrier_faults(originals);
+    for slot in slots {
+        if receive_resource_fault(slot, &mut faults).is_some() {
+            slot.revoke();
+        }
+    }
+}
 
 #[derive(Default)]
 pub(in crate::component) struct InlineSupervisor(tokio::sync::Mutex<()>);
@@ -64,9 +101,10 @@ impl ComponentCatalog {
     fn first_resource_fault(
         &self,
     ) -> Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>> {
+        let mut faults = carrier_faults(&self.original_budgets());
         self.supervised_slots()
             .iter()
-            .find_map(|slot| slot.observe_resource_fault())
+            .find_map(|slot| receive_resource_fault(slot, &mut faults))
     }
     fn first_task_fault(&self) -> Option<Arc<ComponentTaskFault>> {
         self.supervised_slots()
@@ -80,15 +118,15 @@ impl ComponentCatalog {
                 |target| {
                     // This census is temporary. No permanent task/slot registry or
                     // historical configuration owner is kept by the driver.
-                    for slot in self.supervised_slots() {
-                        slot.poll_tasks(target);
-                    }
+                    let slots = self.supervised_slots();
+                    let originals = self.original_budgets();
+                    poll_component_slots(slots.iter().map(Arc::as_ref), target, &originals);
                     if let Some(probes) = self.probes.get().and_then(std::sync::Weak::upgrade) {
                         probes.poll(target);
                     }
                     // One scan per actual Host, including retained orphaned
                     // Carrier originals outside the current protocol census.
-                    self.original_budgets().poll_carrier_originals(target);
+                    originals.poll_carrier_originals(target);
                 },
                 work,
             )
@@ -188,8 +226,9 @@ impl ComponentCatalog {
             self.original_budgets()
                 .carrier
                 .poll_cancelled_retirements(&mut local);
+            let mut faults = carrier_faults(&self.original_budgets());
             for slot in self.supervised_slots() {
-                if let Some(fault) = slot.observe_resource_fault() {
+                if let Some(fault) = receive_resource_fault(&slot, &mut faults) {
                     slot.revoke();
                     return Poll::Ready(crate::component::instance::retained(fault.source.clone()));
                 }

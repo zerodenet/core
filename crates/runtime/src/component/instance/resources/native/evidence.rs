@@ -34,6 +34,17 @@ pub(in crate::component) struct NativeIoEvidence {
 }
 impl HostResources {
     pub(in crate::component) fn io_evidence(&self) -> HostIoEvidence {
+        self.collect_io_evidence(true)
+    }
+
+    pub(super) fn local_io_faults(&self) -> Vec<Arc<ChannelError>> {
+        if self.coverage.is_empty() {
+            return Vec::new();
+        }
+        self.collect_io_evidence(false).sticky_faults
+    }
+
+    fn collect_io_evidence(&self, include_declarations: bool) -> HostIoEvidence {
         let state = self
             .state
             .lock()
@@ -74,12 +85,18 @@ impl HostResources {
         sticky_faults.extend(roots.iter().filter_map(|entry| entry.first_fault.clone()));
         let carriers = self.carriers.evidence();
         let metadata = self.metadata.evidence(self.component);
-        let metapools = self.metapools.evidence();
-        sticky_faults.extend(
-            metapools
-                .iter()
-                .filter_map(|entry| entry.first_fault.clone()),
-        );
+        let metapools = if include_declarations {
+            let evidence = self.metapools.evidence();
+            sticky_faults.extend(
+                evidence
+                    .iter()
+                    .filter_map(|entry| entry.first_fault.clone()),
+            );
+            evidence
+        } else {
+            self.metapools.append_faults(&mut sticky_faults);
+            Vec::new()
+        };
         sticky_faults.extend(
             metadata
                 .iter()
@@ -107,6 +124,11 @@ impl HostResources {
         let declarations = self
             .coverage
             .iter()
+            .take(if include_declarations {
+                self.coverage.len()
+            } else {
+                0
+            })
             .enumerate()
             .map(|(ordinal, binding)| {
                 let mut proof = binding.observe(ordinal, &files, &native);

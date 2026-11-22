@@ -198,12 +198,18 @@ impl HostResources {
                 self.declared_failures.child(instance, failure);
             }
         }
-        let evidence = self.io_evidence();
-        for source in evidence.sticky_faults {
+        self.observe_local_resource_faults();
+        self.declared_failures.get()
+    }
+
+    pub(in crate::component) fn observe_local_resource_faults(&self) {
+        let Some(instance) = self.instance else {
+            return;
+        };
+        for source in self.local_io_faults() {
             self.cancel.cancel();
             self.declared_failures.original(instance, source);
         }
-        self.declared_failures.get()
     }
     pub(in crate::component) fn retain_resource_report(&self, report: &mut CloseReport) {
         let Some(instance) = self.instance else {

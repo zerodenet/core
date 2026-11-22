@@ -280,6 +280,7 @@ impl HostOriginalBudgets {
         let waker = std::task::Waker::from(self.carrier_wake.clone());
         let mut cx = std::task::Context::from_waker(&waker);
         self.carrier.poll_cancelled_retirements(&mut cx);
+        // Process reservations share this Host Root across all component slots.
         #[cfg(any(unix, windows))]
         self.process.poll_released(&mut cx);
     }

@@ -82,9 +82,6 @@ impl ProcessDeclarations {
             .as_ref()
             .is_some_and(|(_, scope)| scope.matches(tasks) && scope.resource_open())
     }
-    pub(super) fn poll_budget(&self, cx: &mut std::task::Context<'_>) {
-        self.budget.poll_released(cx);
-    }
     pub(super) fn evidence(&self, component: ComponentId) -> Vec<ProcessIoEvidence> {
         let mut evidence: Vec<_> = self
             .lock()

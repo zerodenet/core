@@ -275,19 +275,23 @@ impl ComponentSlot {
     }
     pub(in crate::component) fn poll_tasks(&self, target: &Arc<WaitTarget>) -> bool {
         let initialized = self.poll_owned_start(target);
-        let budget = self.recipe.spec().task_limit.map_or(1, |limit| limit.get());
+        let budget = self.recipe.spec().task_limit;
         let progress = self
             .live
             .get()
             .and_then(|live| live.as_ref().ok())
             .is_some_and(|live| {
-                let joined = live.tasks.poll(target, self.instance_id(), budget);
+                // Taskless declarations cannot register an exit. Shutdown
+                // still checks this original Scope's actual drained state.
+                let joined = budget.is_some_and(|budget| {
+                    live.tasks.poll(target, self.instance_id(), budget.get())
+                });
                 live.tasks.wake.bind(target);
                 let waker = std::task::Waker::from(live.tasks.wake.clone());
                 let mut cx = Context::from_waker(&waker);
                 live.resources.poll_cancelled_carriers(&mut cx) || joined
             });
-        if self.task_fault().is_some() || self.observe_resource_fault().is_some() {
+        if self.task_fault().is_some() {
             self.revoke();
         }
         progress || initialized

@@ -61,9 +61,7 @@ impl<'a> TestContext<'a> {
             .drive(
                 self.admission.signal(),
                 |target| {
-                    for slot in &self.slots {
-                        slot.poll_tasks(target);
-                    }
+                    poll_component_slots(self.slots.iter().copied(), target, &self.originals);
                     // Same bound Host Root as production's elected inline scan.
                     // A real final work poll may publish the original Host ACK.
                     self.originals.poll_carrier_originals(target);

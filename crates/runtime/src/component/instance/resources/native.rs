@@ -790,8 +790,6 @@ impl HostResources {
         &self,
         cx: &mut std::task::Context<'_>,
     ) -> bool {
-        #[cfg(any(unix, windows))]
-        self.processes.poll_budget(cx);
         self.carriers.poll_cancelled(cx)
     }
 }

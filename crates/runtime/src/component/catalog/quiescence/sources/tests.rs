@@ -138,7 +138,9 @@ async fn actual_declared_capsule_survives_tcp_journal_failure_and_original_scope
             .into_iter()
             .find(|fault| fault.instance == slot.instance_id())
             .unwrap();
-        let observed = slot.observe_resource_fault().unwrap();
+        catalog.drive_supervised(std::future::ready(())).await;
+        let observed = slot.resource_fault().unwrap();
+        assert!(original.ownership_received());
         assert!(
             contains(&source, &original.source),
             "pre-IO capsule observes actual late OS failure"
@@ -152,7 +154,11 @@ async fn actual_declared_capsule_survives_tcp_journal_failure_and_original_scope
             "cancel does not revoke diagnostic ownership"
         );
         drop(loan.io);
-        assert!(loan.owner.close(end()).await.unwrap().is_complete());
+        assert!(catalog
+            .drive_supervised(loan.owner.close(end()))
+            .await
+            .unwrap()
+            .is_complete());
         assert!(adoption.closed().unwrap().matches(&adoption));
         assert!(adoption.closed().unwrap().had_native_acquisition());
         assert_eq!(remote.read(&mut [0; 1]).await.unwrap(), 0);

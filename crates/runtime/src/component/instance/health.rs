@@ -1,5 +1,6 @@
 //! The same actual component slot, separated without changing ownership.
 use super::*;
+use zero_platform_tokio::contract::lifecycle::ResourceFailure;
 
 impl ComponentSlot {
     pub(in crate::component) fn declared_sources_for_original(
@@ -32,20 +33,29 @@ impl ComponentSlot {
     pub(in crate::component) fn observe_resource_fault(
         &self,
     ) -> Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>> {
-        if let Some(Ok(live)) = self.live.get() {
-            live.resources.resource_fault();
-        }
-        if let Some(root) = self.originals.get() {
-            for fault in root.carrier.resource_failures() {
-                if fault.instance == self.instance_id() {
-                    self.cancel.cancel();
-                    self.declared_failures.child(self.instance_id(), fault);
-                }
-            }
-        }
-        self.declared_failures
+        let faults = self
+            .originals
             .get()
-            .or_else(|| self.protocol_failures.get())
+            .map_or_else(Vec::new, |root| root.carrier.resource_failures());
+        self.observe_resource_faults(
+            faults
+                .into_iter()
+                .filter(|fault| fault.instance == self.instance_id()),
+        )
+    }
+    pub(in crate::component) fn observe_resource_faults(
+        &self,
+        faults: impl IntoIterator<Item = Arc<ResourceFailure>>,
+    ) -> Option<Arc<ResourceFailure>> {
+        for fault in faults {
+            debug_assert_eq!(fault.instance, self.instance_id());
+            self.cancel.cancel();
+            self.declared_failures.child(self.instance_id(), fault);
+        }
+        if let Some(Ok(live)) = self.live.get() {
+            live.resources.observe_local_resource_faults();
+        }
+        self.resource_fault()
     }
     /// Cold recipes remain reusable; revoked or failed runtime owners do not.
     /// This observes the actual persistent initializer, not a synthetic health flag.

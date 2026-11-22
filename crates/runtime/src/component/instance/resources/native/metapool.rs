@@ -114,6 +114,15 @@ impl MetadataPools {
             })
             .collect()
     }
+    pub(super) fn append_faults(&self, faults: &mut Vec<Arc<ChannelError>>) {
+        faults.extend(
+            self.records
+                .lock()
+                .expect("metadata registrations poisoned")
+                .values()
+                .filter_map(|record| record.failure.clone()),
+        );
+    }
 }
 impl HostResources {
     pub(super) fn bind_outbound_icmp_attempt(
