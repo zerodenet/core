@@ -53,9 +53,18 @@ async fn serve_with_identity_inner<P: InboundProtocol>(
         runtime.apply_url_rewrite(&mut session);
     }
     runtime.apply_kernel_rate_limits(&mut session);
-    let admission = runtime
+    let admission = match runtime
         .prepare_session_with_ticket(&mut session, identity)
-        .await?;
+        .await
+    {
+        Ok(admission) => admission,
+        Err(error) => {
+            // The request was parsed, but did not reach upstream selection.
+            // Report the rejection on the wire and retain the admission error.
+            let _ = protocol.send_upstream_failure(&mut client).await;
+            return Err(error);
+        }
+    };
     let traffic_rate_limiters = runtime.traffic_rate_limiters(&session);
 
     let mut handle = runtime.track_session(session.id);
