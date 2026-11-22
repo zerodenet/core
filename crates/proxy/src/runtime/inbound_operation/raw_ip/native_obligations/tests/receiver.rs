@@ -104,7 +104,7 @@ async fn actual_udp_receiver_is_unique_and_retains_its_own_real_failed_exit_befo
             .try_joined()
             .expect("real Source consumes original receiver exit");
         assert!(joined.result().is_err());
-        registration.receiver_released().unwrap();
+        assert!(registration.receiver_released().unwrap());
         let received = native
             .0
             .lock()
@@ -123,7 +123,8 @@ async fn actual_udp_receiver_is_unique_and_retains_its_own_real_failed_exit_befo
             &joined.result().unwrap_err(),
             &received.result().unwrap_err()
         ));
-        assert!(received.failure_accepted());
+        assert!(received.registration_released());
+        assert!(!receiver.is_hosted() && !received.failure_accepted());
         // Real UDP view Drop and both actual task joins still do not create
         // the missing provider/native closure for this entered gateway.
         assert_eq!(native.0.lock().unwrap().records.len(), 1);

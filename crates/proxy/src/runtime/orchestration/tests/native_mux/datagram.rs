@@ -49,32 +49,54 @@ async fn native_mux_standard_datagram_preserves_packets_and_shares_actual_tcp_po
             }
             // The current-thread executor cannot drain the actual physical
             // queue during this single poll: older accepted frames stay queued.
+            let ninth = Datagram {
+                association: AssociationId(10),
+                address: udp.target(),
+                payload: vec![8].into(),
+            };
             std::future::poll_fn(|cx| {
-                for value in 0..9_u8 {
+                for value in 0..8_u8 {
                     let frame = Datagram {
                         association: AssociationId(10),
                         address: udp.target(),
                         payload: vec![value].into(),
                     };
                     let polled = udp_channel.tx.as_mut().poll_send(cx, &frame);
-                    if value < 8 {
-                        assert!(matches!(polled, std::task::Poll::Ready(Ok(_))));
-                    } else {
-                        let std::task::Poll::Ready(Err(failure)) = polled else {
-                            panic!("bounded native packet queue accepted a ninth frame")
-                        };
-                        assert_eq!(failure.delivery, DeliveryState::NotSubmitted);
-                        assert_eq!(
-                            failure.error.reason,
-                            zero_platform_tokio::contract::Reason::Capacity
-                        );
-                    }
+                    assert!(matches!(polled, std::task::Poll::Ready(Ok(_))));
+                }
+                let polled = udp_channel.tx.as_mut().poll_send(cx, &ninth);
+                if protocol == "vless" {
+                    assert!(
+                        polled.is_pending(),
+                        "VLESS waits for space in its original FIFO"
+                    );
+                } else {
+                    let std::task::Poll::Ready(Err(failure)) = polled else {
+                        panic!("{protocol} must refuse the ninth frame before submission")
+                    };
+                    assert_eq!(failure.delivery, DeliveryState::NotSubmitted);
+                    assert_eq!(
+                        failure.error.reason,
+                        zero_platform_tokio::contract::Reason::Capacity
+                    );
                 }
                 std::task::Poll::Ready(())
             })
             .await;
             for value in 0..8_u8 {
                 receive(&mut udp_channel, 10, udp.target(), &[value]).await;
+            }
+            if protocol == "vless" {
+                let receipt = send(
+                    udp_channel.tx.as_mut(),
+                    udp_channel.control.as_mut(),
+                    &ninth,
+                    &udp_channel.limits,
+                )
+                .await
+                .unwrap();
+                assert_eq!(receipt.delivery, DeliveryState::LocallyAccepted);
+                receive(&mut udp_channel, 10, udp.target(), &[8]).await;
             }
             assert_eq!(server.fixture.connections(), 1);
             assert_eq!(registration.observe().unwrap().slots().len(), 1);

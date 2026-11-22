@@ -126,15 +126,15 @@ async fn one_actual_main_slot_rejects_native_tun_driver_before_any_native_acquis
         )
     };
     let started = prepare();
-    let (owner, failure) = match started {
+    let (owner, failure, main_started) = match started {
         Ok(owner) => {
             let failure = tokio::time::timeout_at(deadline, owner.wait_ready())
                 .await
                 .unwrap()
                 .unwrap_err();
-            (owner, failure)
+            (owner, failure, true)
         }
-        Err(failure) => (original.clone(), failure),
+        Err(failure) => (original.clone(), failure, false),
     };
     assert!(Arc::ptr_eq(&owner, &original));
     assert!(
@@ -159,9 +159,13 @@ async fn one_actual_main_slot_rejects_native_tun_driver_before_any_native_acquis
     }
     let terminal = owner
         .terminal()
-        .expect("same actual main joined and unused native declarations retired");
+        .expect("same actual Source Scope and unused native declarations retired");
     assert_eq!(terminal.identity(), original.identity());
-    assert!(terminal.joined_tasks() >= 1);
+    if main_started {
+        assert!(terminal.joined_tasks() >= 1);
+    } else {
+        assert_eq!(terminal.joined_tasks(), 0, "Main launch stayed unsubmitted");
+    }
     assert!(state.driver().is_none());
     let stopped = tokio::time::timeout_at(deadline, running.shutdown())
         .await

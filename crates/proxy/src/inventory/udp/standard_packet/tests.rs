@@ -17,11 +17,7 @@ fn proxy(members: &[&str]) -> Proxy {
         "outbound_groups":[{"tag":"chain","type":"relay","proxies":members}],
         "route":{"final":{"type":"route","outbound":"chain"}}
     }).to_string()).unwrap();
-    let mut proxy = Proxy::new(config).unwrap();
-    // The real factories/adapter state stay installed. Their executable claim
-    // projections are absent, so a successful selection cannot mask old calls.
-    proxy.protocols.registry = Arc::new(proxy.protocols.registry.as_ref().clone());
-    proxy
+    Proxy::new(config).unwrap()
 }
 fn session(proxy: &Proxy) -> Session {
     let mut session = Session::new(

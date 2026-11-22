@@ -41,7 +41,7 @@ async fn rejected_pre_admission_metadata_waits_actual_caller_join_without_poison
     observed.await.unwrap();
     let monitor = {
         let owner = owner.clone();
-        tokio::spawn(async move { owner.observe_driver().await })
+        tokio::spawn(async move { owner.observe_listener().await })
     };
     let mut permit = native.reserve(ChildKind::Tcp).unwrap();
     let registration = permit.registration();
@@ -94,12 +94,20 @@ async fn rejected_pre_admission_metadata_waits_actual_caller_join_without_poison
         !monitor.is_finished(),
         "new-flow capacity did not stop the original pending Source main"
     );
-    host.request_stop();
+    owner.request_stop();
     writer.write_u8(1).await.unwrap();
     tokio::time::timeout_at(end, monitor)
         .await
         .unwrap()
         .unwrap()
         .unwrap();
-    assert!(owner.terminal_for_test().is_some());
+    let receipt = registry
+        .confirm_shutdown("metadata-source", end)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.terminal().identity(), owner.identity());
+    assert!(receipt.terminal().failure().is_none());
+    assert_eq!(receipt.terminal().joined_tasks(), 2);
+    registry.release_closed(receipt, |_| Ok(())).unwrap();
 }

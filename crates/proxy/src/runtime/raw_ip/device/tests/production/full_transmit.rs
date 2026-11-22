@@ -44,9 +44,8 @@ async fn ordinary_wireguard_tcp_ack_releases_full_actual_transmit_cache_without_
         }) as Arc<peer::InnerObserver>
     };
     let (endpoint, peer_task) = peer::echo_peer_inner(None, Some(observe)).await;
-    // Both real originals choose an ephemeral port, on distinct validated
-    // addresses. No duplicate listen or assumed free numeric port is used.
-    let mut config = configuration_with_source(endpoint, 0, false, "127.0.0.2");
+    // Each original owns its kernel-assigned ephemeral port.
+    let mut config = configuration(endpoint, 0, false);
     // The same Source's actual 148-byte control workspace consumes one frame;
     // its real retained IP+padding+cipher envelope consumes the remaining three.
     config.runtime.packet_transmit_total_max_frames = Some(4);

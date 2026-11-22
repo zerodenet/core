@@ -154,15 +154,20 @@ async fn start_inner(
     }
 }
 pub(crate) async fn close(proxy: &Proxy, tag: &str, listener: Listener) {
-    listener.owner.task_access().request_stop();
-    listener.stop.send_replace(true);
-    listener.worker.await.unwrap().unwrap();
     let receipt = proxy
-        .inbound_owners
-        .confirm_shutdown(tag, Instant::now() + Duration::from_secs(3))
-        .await
-        .unwrap()
-        .unwrap();
+        .protocols
+        .drive_component_supervision(async {
+            listener.owner.task_access().request_stop();
+            listener.stop.send_replace(true);
+            listener.worker.await.unwrap().unwrap();
+            proxy
+                .inbound_owners
+                .confirm_shutdown(tag, Instant::now() + Duration::from_secs(3))
+                .await
+                .unwrap()
+                .unwrap()
+        })
+        .await;
     assert!(
         receipt.terminal().failure().is_none(),
         "{:?}",

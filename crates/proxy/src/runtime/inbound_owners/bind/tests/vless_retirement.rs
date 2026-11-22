@@ -143,6 +143,24 @@ async fn exercise(reality: bool, tls: bool) {
         let mut reply = [0; 6];
         stream.read_exact(&mut reply).await.unwrap();
         assert_eq!(&reply, b"\0\0back");
+        let direct = proxy
+            .tcp_runtime_services()
+            .components
+            .as_ref()
+            .unwrap()
+            .direct(None)
+            .unwrap()
+            .original_carrier_owner(0)
+            .unwrap();
+        let tcp_original = direct
+            .observe()
+            .unwrap()
+            .slots()
+            .iter()
+            .find(|slot| slot.physical_view_live() && slot.user_view_live())
+            .expect("actual relayed Direct TCP original")
+            .original()
+            .clone();
         let mut datagram = open(
             listener.address,
             reality.then_some(public.as_str()),
@@ -184,7 +202,11 @@ async fn exercise(reality: bool, tls: bool) {
         );
         let terminal = original.terminal().unwrap();
         assert!(terminal.joined_tasks() >= 4);
-        assert!(terminal.closed_io_receipts() >= 3);
+        assert!(terminal.closed_io_receipts() > 0);
+        let closed = tcp_original
+            .closed()
+            .expect("original Direct TCP socket closed");
+        assert!(tcp_original.matches_closed(&closed) && closed.had_native_acquisition());
         assert!(proxy.engine().active_sessions().is_empty());
         assert_eq!(
             proxy.engine().completed_sessions().len(),

@@ -53,7 +53,17 @@ async fn ordinary_vmess_datagram_preserves_tls_ws_early_data_and_wss_carriers() 
             } else {
                 stream
             };
-            echo_io(stream, "aes-128-gcm".into(), 53, vec![b"carrier".to_vec()]).await;
+            // The native owner can close a cancelled association before TLS
+            // close_notify or a WS close frame. Check data on wire and consume
+            // the same client's native retirement receipt below.
+            echo_io_with_close(
+                stream,
+                "aes-128-gcm".into(),
+                53,
+                vec![b"carrier".to_vec()],
+                !tls && !ws,
+            )
+            .await;
         });
         let originals = crate::runtime::udp_ingress::test_source::run(
             &proxy,

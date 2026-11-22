@@ -155,33 +155,14 @@ async fn exercise(legacy: bool) {
     );
     // Close the real host while stream/datagram handles are still live.
     let owner = running.owner.clone();
-    owner.task_access().request_stop();
-    running.stop.send_replace(true);
-    running.worker.await.unwrap().unwrap();
-    eprintln!("host tasks joined");
-    let receipt = proxy
-        .inbound_owners
-        .confirm_shutdown("hy", Instant::now() + Duration::from_secs(5))
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(
-        receipt.terminal().failure().is_none(),
-        "{:?}",
-        receipt.terminal().failure()
-    );
-    assert!(receipt.terminal().closed_io_receipts() > 0);
-    assert!(receipt.terminal().joined_tasks() > 1);
-    assert!(proxy.inbound_owners.open_bind_admission().is_err());
+    let original_address = running.address;
+    test_listener::close(&proxy, "hy", running).await;
+    assert!(owner.terminal_for_test().unwrap().joined_tasks() > 1);
     assert_eq!(
         peer.read(&mut bytes).await.unwrap(),
         0,
         "actual upstream original retired"
     );
-    proxy
-        .inbound_owners
-        .release_closed(receipt, |_| Ok(()))
-        .unwrap();
     drop(stream);
     if let Some((sender, worker)) = guard {
         drop(sender);
@@ -193,7 +174,7 @@ async fn exercise(legacy: bool) {
     client.wait_idle().await;
     // Only the exact receipt above permits a replacement source on the same endpoint.
     let mut same = input;
-    same.listen.port = running.address.port();
+    same.listen.port = original_address.port();
     let next = test_listener::start(&proxy, same).await;
     test_listener::close(&proxy, "hy", next).await;
     proxy

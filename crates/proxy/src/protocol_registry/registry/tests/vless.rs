@@ -55,23 +55,46 @@ fn forbidden_mkcp_reality_and_hysteria_without_quic_remain_config_errors() {
         .to_string()
         .contains("Hysteria carrier requires auth and QUIC TLS settings"));
 }
-#[test]
-fn failed_standard_vless_preparation_cannot_fall_back_to_legacy_listener() {
-    let mut config =
-        RuntimeConfig::parse(&document(json!({"type":"vless","users":[],"mkcp":{}})).to_string())
-            .unwrap();
-    let mut inbound = config.inbounds.remove(0);
-    let zero_config::InboundProtocolConfig::Vless { tls, .. } = &mut inbound.protocol else {
-        unreachable!()
-    };
-    *tls = Some(Box::new(
-        serde_json::from_value(json!({"cert_path":"/nonexistent/zero-test/ca.pem",
-        "key_path":"/nonexistent/zero-test/key.pem"}))
-        .unwrap(),
-    ));
+#[tokio::test]
+async fn missing_vless_tls_material_stops_startup_after_cold_standard_selection() {
+    let material = tempfile::tempdir().unwrap();
+    let certificate = material.path().join("missing-certificate.pem");
+    let key = material.path().join("missing-key.pem");
+    let config = RuntimeConfig::parse(
+        &document(json!({"type":"vless","users":[],"mkcp":{},
+        "tls":{"cert_path":certificate,"key_path":key}}))
+        .to_string(),
+    )
+    .unwrap();
+    let inbound = config.inbounds[0].clone();
     let proxy = crate::runtime::Proxy::new(config).unwrap();
-    assert!(proxy
+    let prepared = proxy
         .protocols
-        .prepare_inbound_bind(inbound.clone(), None)
-        .is_err());
+        .prepare_inbound_bind(inbound, None)
+        .unwrap()
+        .expect("cold standard VLESS source");
+    assert!(prepared
+        .into_recipe()
+        .spec()
+        .roles
+        .contains(&zero_platform_tokio::contract::component::RoleKind::Inbound));
+    let error = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        proxy.run_until(std::future::pending()),
+    )
+    .await
+    .expect("missing material must fail startup")
+    .unwrap_err();
+    let mut cause: &dyn std::error::Error = &error;
+    loop {
+        if cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|source| source.kind() == std::io::ErrorKind::NotFound)
+        {
+            break;
+        }
+        cause = cause
+            .source()
+            .unwrap_or_else(|| panic!("expected missing TLS material: {error:#?}"));
+    }
 }
