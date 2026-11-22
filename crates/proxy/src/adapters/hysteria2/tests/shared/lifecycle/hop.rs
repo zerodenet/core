@@ -34,34 +34,38 @@ async fn exercise(max_entries: Option<usize>) {
             .unwrap();
         let role = slot.datagram(end()).await.unwrap();
         let endpoint = Destination::new(Address::Ipv4([203, 0, 113, 8]), 53);
+        // This fixture starts the catalog without the proxy run loop. Poll
+        // its existing supervisor so setup can receive its original Scope ACK.
         let open = |id| {
-            role.open_carrier(
-                DatagramRequest {
-                    association: AssociationId(id),
-                    targets: DatagramTargets::Fixed(endpoint.clone()),
-                },
-                OpenContext {
-                    identity: RequestIdentity::Service(
-                        Arc::new(zero_core::request::ServiceRequestFacts {
-                            origin: zero_core::request::ServiceOrigin::Runtime,
-                            purpose: zero_core::request::ServicePurpose::BackgroundControl,
-                        })
-                        .into(),
-                    ),
-                    deadline: Some(end()),
-                    cancel: CancellationToken::new(),
-                    observer: None,
-                    upstream: UpstreamTransport::new(
-                        UpstreamBinding {
-                            prefix: vec![],
-                            dial: slot.dial.clone(),
-                            network_generation: zero_core::component::NetworkGeneration(
-                                proxy.egress_interface.generation(),
-                            ),
-                        },
-                        Arc::new(Denied),
-                    ),
-                },
+            proxy.protocols.drive_component_supervision(
+                role.open_carrier(
+                    DatagramRequest {
+                        association: AssociationId(id),
+                        targets: DatagramTargets::Fixed(endpoint.clone()),
+                    },
+                    OpenContext {
+                        identity: RequestIdentity::Service(
+                            Arc::new(zero_core::request::ServiceRequestFacts {
+                                origin: zero_core::request::ServiceOrigin::Runtime,
+                                purpose: zero_core::request::ServicePurpose::BackgroundControl,
+                            })
+                            .into(),
+                        ),
+                        deadline: Some(end()),
+                        cancel: CancellationToken::new(),
+                        observer: None,
+                        upstream: UpstreamTransport::new(
+                            UpstreamBinding {
+                                prefix: vec![],
+                                dial: slot.dial.clone(),
+                                network_generation: zero_core::component::NetworkGeneration(
+                                    proxy.egress_interface.generation(),
+                                ),
+                            },
+                            Arc::new(Denied),
+                        ),
+                    },
+                ),
             )
         };
         let mut old = open(710).await.unwrap();

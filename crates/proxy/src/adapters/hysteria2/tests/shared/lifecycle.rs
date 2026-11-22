@@ -222,18 +222,20 @@ async fn hysteria2_original_logical_control_retains_custody_until_actual_views_r
             .unwrap()
             .configured("hy")
             .unwrap();
-        let opened = crate::component::stream_bridge::datagram::open(
-            &services.execution(),
-            &slot,
-            "hy",
-            Destination::new(Address::Ipv4([127, 0, 0, 1]), server.port),
-            DatagramRequest {
-                association: AssociationId(991),
-                targets: DatagramTargets::Multiple,
-            },
-        )
-        .await
-        .unwrap();
+        let opened = proxy
+            .protocols
+            .drive_component_supervision(crate::component::stream_bridge::datagram::open(
+                &services.execution(),
+                &slot,
+                "hy",
+                Destination::new(Address::Ipv4([127, 0, 0, 1]), server.port),
+                DatagramRequest {
+                    association: AssociationId(991),
+                    targets: DatagramTargets::Multiple,
+                },
+            ))
+            .await
+            .unwrap();
         let zero_platform_tokio::contract::datagram::DatagramSession {
             tx,
             mut rx,
@@ -304,7 +306,12 @@ async fn hysteria2_finite_original_udp_session_capacity_refuses_then_reclaims_ac
         let services=proxy.tcp_runtime_services().for_inbound("incoming".into()).with_business_identity(&session).unwrap().execution();
         let slot=services.components.as_ref().unwrap().configured("hy").unwrap();
         let endpoint=Destination::new(Address::Ipv4([127,0,0,1]),server.port);
-        let open=|id| crate::component::stream_bridge::datagram::open(&services,&slot,"hy",endpoint.clone(),DatagramRequest{association:AssociationId(id),targets:DatagramTargets::Multiple});
+        let open=|id| proxy.protocols.drive_component_supervision(
+            crate::component::stream_bridge::datagram::open(
+                &services, &slot, "hy", endpoint.clone(),
+                DatagramRequest { association: AssociationId(id), targets: DatagramTargets::Multiple },
+            ),
+        );
         let mut channels=Vec::new();
         for id in 1..=4096 {channels.push(open(id).await.unwrap().channel);}
         let error=match open(4097).await {Err(error)=>error,Ok(_)=>panic!("finite dispatcher capacity was bypassed")};
