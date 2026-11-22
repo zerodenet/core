@@ -19,8 +19,12 @@ impl ComponentCatalog {
             let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
                 .await
                 .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;
+            let plans = self.shutdown_plans();
+            if plans.iter().all(|plan| plan.deferred_devices.is_empty()) {
+                return Ok(());
+            }
             self.admission.freeze_loans().retain();
-            for plan in self.shutdown_plans() {
+            for plan in plans {
                 plan.shutdown_device_borrowers(deadline).await?;
             }
             Ok(())
