@@ -67,13 +67,27 @@ impl LookupCaller {
         source: std::net::SocketAddr,
         transport: LocalProcessTransport,
     ) -> Option<LocalProcessInfo> {
+        self.lookup_with_limit(
+            source,
+            transport,
+            NonZeroUsize::new(8 * 1024 * 1024).unwrap(),
+        )
+        .await
+    }
+
+    pub(super) async fn lookup_with_limit(
+        &mut self,
+        source: std::net::SocketAddr,
+        transport: LocalProcessTransport,
+        read_limit: NonZeroUsize,
+    ) -> Option<LocalProcessInfo> {
         let registrar = self.scope.registrar();
         let original = LocalProcessLookup::prepare(
             self.caller.clone(),
             source,
             transport,
             registrar.cancellation(),
-            NonZeroUsize::new(8 * 1024 * 1024).unwrap(),
+            read_limit,
         )
         .unwrap();
         original

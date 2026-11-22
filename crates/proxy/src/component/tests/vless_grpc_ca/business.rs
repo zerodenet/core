@@ -24,8 +24,9 @@ async fn ordinary_socks_business_uses_the_same_grpc_origin_and_keeps_both_traffi
         for multi in [false,true] {
             let directory=Directory::new();let path=directory.0.join("ca.pem");let peer=Peer::new().await;std::fs::write(&path,&peer.pem).unwrap();
             let mut value=serde_json::to_value(config(&peer,&path,"rustls",multi)).unwrap();
-            // This case exercises carrier reuse with ordinary ingress metadata
-            // capacity. The CA-specific cases still use the shared 4 KiB bound.
+            // Exercise Darwin's bounded process lookup with the original
+            // 4 KiB limit. Other platforms use their ordinary lookup capacity.
+            #[cfg(not(target_os = "macos"))]
             value["runtime"].as_object_mut().unwrap().remove("file_read_max_bytes");
             value["inbounds"]=serde_json::json!([{"tag":"caller","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}]);
             value["route"]["final"]=serde_json::json!({"type":"route","outbound":"grpc"});

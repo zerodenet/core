@@ -48,6 +48,42 @@ async fn resolves_the_process_that_owns_a_live_tcp_source() {
     caller.finish().await;
 }
 
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn resolves_a_tcp_socket_beyond_the_darwin_descriptor_read_limit() {
+    use std::{fs::File, num::NonZeroUsize, os::fd::AsRawFd};
+
+    // Keep more than 512 lower descriptors open across the real lookup so
+    // the client socket cannot be part of the 4 KiB PROC_PIDLISTFDS prefix.
+    let files: Vec<_> = (0..530).map(|_| File::open("/dev/null").unwrap()).collect();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client = TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    let (_accepted, _) = listener.accept().await.unwrap();
+    assert!(
+        files
+            .iter()
+            .filter(|file| file.as_raw_fd() < client.as_raw_fd())
+            .count()
+            > 512,
+        "the real client FD must be beyond the bounded descriptor prefix"
+    );
+
+    let mut caller = LookupCaller::new().await;
+    let process = caller
+        .lookup_with_limit(
+            client.local_addr().unwrap(),
+            zero_platform_tokio::LocalProcessTransport::Tcp,
+            NonZeroUsize::new(4096).unwrap(),
+        )
+        .await
+        .expect("bounded lookup must resolve the process owning the tail socket");
+    assert_eq!(process.pid, std::process::id());
+    caller.finish().await;
+    drop(files);
+}
+
 #[tokio::test]
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 async fn resolves_the_process_that_owns_a_bound_udp_source() {
