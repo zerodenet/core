@@ -59,9 +59,9 @@ pub(super) fn spawn(
                     super::hopping::spawn(actor_generation.clone(), work_entry.clone()).await
                 {
                     let source = work_entry.owners.receive_setup(source);
-                    let _ = ready.send(Err(ChannelError::retained(source.clone())));
+                    let _ = ready.send(Err(ChannelError::retained(source)));
                     work_entry.retirement.request_retirement();
-                    return Err(ChannelError::retained(source));
+                    return Ok(());
                 }
                 if ready.send(Ok(io)).is_err() {
                     work_entry.retirement.request_retirement();
@@ -72,9 +72,9 @@ pub(super) fn spawn(
                 // Synchronous persist-before-return: a later outer host stop
                 // cannot drop a result already produced by this real work.
                 let source = work_entry.owners.receive_setup(source);
-                let _ = ready.send(Err(ChannelError::retained(source.clone())));
+                let _ = ready.send(Err(ChannelError::retained(source)));
                 work_entry.retirement.request_retirement();
-                Err(ChannelError::retained(source))
+                Ok(())
             }
             None => {
                 let _ = ready.send(Err(error(Stage::Prepare, Reason::Cancelled)));

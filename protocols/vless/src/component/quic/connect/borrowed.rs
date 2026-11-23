@@ -82,9 +82,11 @@ pub(super) fn spawn(
                 // Synchronous persist-before-return: a later outer host stop
                 // cannot drop a result already produced by this real work.
                 let source = work_entry.owners.receive_setup(source);
-                let _ = ready.send(Err(ChannelError::retained(source.clone())));
+                let _ = ready.send(Err(ChannelError::retained(source)));
                 work_entry.retirement.request_retirement();
-                Err(ChannelError::retained(source))
+                // The original owns the operation failure. The task itself
+                // completed its setup and retirement handoff.
+                Ok(())
             }
             None => {
                 let _ = ready.send(Err(error(Stage::Prepare, Reason::Cancelled)));
