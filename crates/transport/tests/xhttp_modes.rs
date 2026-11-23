@@ -1,5 +1,6 @@
 #![cfg(feature = "split_http")]
 use std::time::Duration;
+use std::{future::Future, task::Poll};
 use tokio::io::{duplex, AsyncReadExt, AsyncWriteExt};
 use zero_transport::{
     profile::OwnedSplitHttpProfile,
@@ -62,6 +63,41 @@ async fn stream_up_uses_one_continuous_upload() {
 #[tokio::test]
 async fn auto_without_reality_uses_packet_uploads() {
     roundtrip("auto").await;
+}
+
+#[tokio::test]
+async fn http1_peer_close_retires_the_idle_download() {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (socket, _) = listener.accept().await.unwrap();
+        let source =
+            accept_xhttp_connection(socket, &config("auto"), &SplitHttpRegistry::new());
+        let request = format!(
+            "GET /tunnel/idle HTTP/1.1\r\nHost: example.com\r\nReferer: https://example.com/?x_padding={}\r\n\r\n",
+            "X".repeat(128)
+        );
+        client.write_all(request.as_bytes()).await.unwrap();
+        let mut head = Vec::new();
+        while !head.ends_with(b"\r\n\r\n") {
+            head.push(client.read_u8().await.unwrap());
+        }
+        assert!(head.starts_with(b"HTTP/1.1 200 "));
+        let mut stream = source.accept().await.unwrap();
+        let mut byte = [0];
+        let mut read = std::pin::pin!(stream.read(&mut byte));
+        std::future::poll_fn(|cx| {
+            assert!(read.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        drop(client);
+        assert_eq!(read.await.unwrap(), 0);
+    })
+    .await
+    .expect("the peer close retires the pending logical download");
 }
 
 #[tokio::test]

@@ -245,27 +245,7 @@ impl SendStream {
         let conn = self.conn.clone();
         let stream = self.stream;
         let is_0rtt = self.is_0rtt;
-        async move {
-            loop {
-                // The `Notify::notified` future needs to be created while the lock is being held,
-                // otherwise a wakeup could be missed if triggered inbetween releasing the lock
-                // and creating the future.
-                // The lock may only be held in a block without `await`s, otherwise the future
-                // becomes `!Send`. `Notify::notified` is lifetime-bound to `Notify`, therefore
-                // we need to declare `notify` outside of the block, and initialize it inside.
-                let notify;
-                {
-                    let mut conn = conn.state.lock("SendStream::stopped");
-                    if let Some(output) = send_stream_stopped(&mut conn, stream, is_0rtt) {
-                        return output;
-                    }
-
-                    notify = conn.stopped.entry(stream).or_default().clone();
-                    notify.notified()
-                }
-                .await
-            }
-        }
+        async move { stopped_on(&conn, stream, is_0rtt).await }
     }
 
     /// Get the identity of this stream
@@ -291,6 +271,27 @@ impl SendStream {
 
 /// Check if a send stream is stopped.
 ///
+pub(crate) async fn stopped_on(
+    conn: &ConnectionRef,
+    stream: StreamId,
+    is_0rtt: bool,
+) -> Result<Option<VarInt>, StoppedError> {
+    loop {
+        // Register while holding the same lock as the stop check so a peer
+        // STOP_SENDING cannot be lost between the check and awaiting it.
+        let notify;
+        {
+            let mut conn = conn.state.lock("SendStream::stopped");
+            if let Some(output) = send_stream_stopped(&mut conn, stream, is_0rtt) {
+                return output;
+            }
+            notify = conn.stopped.entry(stream).or_default().clone();
+            notify.notified()
+        }
+        .await;
+    }
+}
+
 /// Returns `Some` if the stream is stopped or the connection is closed.
 /// Returns `None` if the stream is not stopped.
 fn send_stream_stopped(

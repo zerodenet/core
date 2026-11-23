@@ -52,6 +52,7 @@ where
             io: Buffered::new(io),
             state: State {
                 allow_half_close: false,
+                close_on_read_eof: false,
                 cached_headers: None,
                 error: None,
                 keep_alive: KA::Busy,
@@ -492,7 +493,9 @@ where
         debug_assert!(!self.can_read_head() && !self.can_read_body() && !self.is_read_closed());
         debug_assert!(self.is_mid_message());
 
-        if self.state.allow_half_close || !self.io.read_buf().is_empty() {
+        if (self.state.allow_half_close && !self.state.close_on_read_eof)
+            || !self.io.read_buf().is_empty()
+        {
             return Poll::Pending;
         }
 
@@ -593,6 +596,12 @@ where
     }
 
     pub(crate) fn write_head(&mut self, head: MessageHead<T::Outgoing>, body: Option<BodyLength>) {
+        self.state.close_on_read_eof = !T::is_client()
+            && head
+                .extensions
+                .get::<crate::ext::CloseOnReadEof>()
+                .is_some();
+        self.state.notify_read |= self.state.close_on_read_eof;
         if let Some(encoder) = self.encode_head(head, body) {
             self.state.writing = if !encoder.is_eof() {
                 Writing::Body(encoder)
@@ -911,6 +920,7 @@ impl<I: Unpin, B, T> Unpin for Conn<I, B, T> {}
 
 struct State {
     allow_half_close: bool,
+    close_on_read_eof: bool,
     /// Re-usable HeaderMap to reduce allocating new ones.
     cached_headers: Option<HeaderMap>,
     /// If an error occurs when there wasn't a direct way to return it

@@ -54,6 +54,12 @@ mod h1_reason_phrase;
 #[cfg(any(feature = "http1", feature = "ffi"))]
 pub use h1_reason_phrase::ReasonPhrase;
 
+/// Close the HTTP/1 connection if its peer ends the read side while this
+/// response is in flight, even when the server permits transport half-closes.
+#[cfg(feature = "http1")]
+#[derive(Clone, Copy, Debug)]
+pub struct CloseOnReadEof;
+
 #[cfg(all(feature = "http1", feature = "client"))]
 mod informational;
 #[cfg(all(feature = "http1", feature = "client"))]

@@ -283,12 +283,16 @@ where
         Ok(())
     })?;
     admission.complete = true;
-    Ok(response(Body {
+    let mut response = response(Body {
         receiver: receiver.into(),
         task: Some(task),
         life: Some(life),
         progress: None,
-    }))
+    });
+    // The response owns the logical stream. Unlike upload acknowledgements,
+    // an idle download must end when its HTTP/1 connection reaches read EOF.
+    response.extensions_mut().insert(hyper::ext::CloseOnReadEof);
+    Ok(response)
 }
 #[cfg(test)]
 #[path = "../../../tests/xhttp_server/authority.rs"]

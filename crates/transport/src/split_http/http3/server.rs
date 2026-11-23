@@ -5,7 +5,6 @@ use super::super::{
     SplitHttpRegistry,
 };
 use bytes::Buf;
-use http_body_util::BodyExt;
 use std::{io, time::Duration};
 use tokio::sync::mpsc;
 use zero_traits::SplitHttpTransportProfile;
@@ -41,9 +40,11 @@ pub fn accept_xhttp_h3_connection<P: SplitHttpTransportProfile + ?Sized>(
                         Err(error) => { tracing::debug!(%error, "XHTTP H3 request accept failed"); break; },
                     };
                     let profile = profile.clone(); let registry = registry.clone(); let accepted = accepted.clone();
+                    let connection = connection.clone();
                     tasks.spawn(async move {
                         let (request, stream) = tokio::time::timeout(Duration::from_secs(30), resolver.resolve_request()).await.map_err(io::Error::other)?.map_err(io::Error::other)?;
-                        let (mut send, mut recv) = stream.split();
+                        let (send, mut recv) = stream.split();
+                        let request_id = super::peer_request(send.send_id());
                         let (sender, receiver) = mpsc::channel(8);
                         let upload = tokio::spawn(async move {
                             let result = async {
@@ -61,12 +62,7 @@ pub fn accept_xhttp_h3_connection<P: SplitHttpTransportProfile + ?Sized>(
                             Ok(permit) => exchange::handle(request,profile,registry.sessions,accepted,permit).await.unwrap_or_else(|error| { tracing::debug!(%error, "XHTTP H3 request rejected"); status(400) }),
                             Err(_) => status(503),
                         };
-                        let (parts,mut body) = response.into_parts();
-                        send.send_response(http::Response::from_parts(parts,())).await.map_err(io::Error::other)?;
-                        while let Some(frame) = body.frame().await {
-                            if let Ok(data) = frame?.into_data() { send.send_data(data).await.map_err(io::Error::other)?; }
-                        }
-                        send.finish().await.map_err(io::Error::other)
+                        super::send_response(send, response, connection.peer_bidi_stopped(request_id)).await
                     });
                 }
                 completed = tasks.join_next(), if !tasks.is_empty() => {

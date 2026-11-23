@@ -21,7 +21,7 @@ use crate::{
     mutex::Mutex,
     recv_stream::RecvStream,
     runtime::{AsyncTimer, AsyncUdpSocket, Runtime, UdpPoller},
-    send_stream::SendStream,
+    send_stream::{SendStream, StoppedError, stopped_on},
     udp_transmit,
 };
 use proto::{
@@ -296,6 +296,16 @@ impl Future for ConnectionDriver {
 pub struct Connection(ConnectionRef);
 
 impl Connection {
+    /// Observe the send side of an already accepted, peer-initiated bidi stream.
+    /// This does not acquire a stream or keep its send handle open. As with
+    /// [`SendStream::stopped`], `None` means no stop code is available.
+    pub async fn peer_bidi_stopped(&self, id: StreamId) -> Result<Option<VarInt>, StoppedError> {
+        if id.dir() != Dir::Bi || id.initiator() == self.side() {
+            return Ok(None);
+        }
+        stopped_on(&self.0, id, false).await
+    }
+
     /// Initiate a new outgoing unidirectional stream.
     ///
     /// Streams are cheap and instantaneous to open unless blocked by flow control. As a

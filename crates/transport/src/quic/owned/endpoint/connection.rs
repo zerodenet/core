@@ -10,6 +10,14 @@ pub struct OwnedConnection {
     pub(super) permit: Permit,
 }
 impl OwnedConnection {
+    #[cfg(feature = "split_http")]
+    pub(crate) async fn peer_bidi_stopped(
+        &self,
+        id: quinn::StreamId,
+    ) -> Result<Option<quinn::VarInt>, quinn::StoppedError> {
+        self.connection.peer_bidi_stopped(id).await
+    }
+
     pub fn try_clone(&self) -> Result<Self, ChannelError> {
         let permit = self.permit.users().acquire()?;
         Ok(Self {
