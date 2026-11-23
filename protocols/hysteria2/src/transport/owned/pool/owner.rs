@@ -103,6 +103,7 @@ impl ResourceLifecycle for Owner {
         }
     }
     async fn shutdown(&mut self, end: Instant) -> Result<CloseReport, BuildError> {
+        tracing::debug!(target: "hysteria2::pool_close", "waiting for maintenance join");
         self.revoke(CloseReason::Shutdown);
         let maintenance = self.generation.maintenance.lock().unwrap().clone();
         if let Some(witness) = maintenance {
@@ -126,8 +127,16 @@ impl ResourceLifecycle for Owner {
         // Each exact owner retains its partial cleanup state. Drive all of
         // the existing finite entry set inline against the same caller end;
         // a slow original cannot spend the other originals' close budgets.
-        let results =
-            futures_util::future::join_all(entries.iter().map(|entry| entry.close(end))).await;
+        tracing::debug!(target: "hysteria2::pool_close", entries = entries.len(), "waiting for entry closes");
+        let results = futures_util::future::join_all(entries.iter().map(|entry| async {
+            let result = entry.close(end).await;
+            if let Err(error) = &result {
+                let cause = std::error::Error::source(error).map(ToString::to_string);
+                tracing::debug!(target: "hysteria2::pool_close", %error, ?cause, "entry close failed");
+            }
+            result
+        })).await;
+        tracing::debug!(target: "hysteria2::pool_close", "entry closes returned");
         let failures = results
             .into_iter()
             .filter_map(Result::err)
@@ -191,9 +200,11 @@ impl ResourceLifecycle for Owner {
                 );
             }
         }
+        tracing::debug!(target: "hysteria2::pool_close", "waiting for metadata owner receipts");
         for owner in &self.generation.metadata {
             report.append(owner.shutdown_after_registration_ack(end).await?);
         }
+        tracing::debug!(target: "hysteria2::pool_close", first_unfinished = ?report.unfinished.first(), "metadata owner receipts returned");
         if report.is_complete() {
             let retired_entries = std::mem::take(&mut *self.generation.entries.lock().unwrap());
             let retired_failures = std::mem::take(&mut *self.generation.failures.lock().unwrap());

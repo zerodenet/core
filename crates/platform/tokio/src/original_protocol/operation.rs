@@ -22,19 +22,15 @@ impl Wake for OriginalWake {
 }
 impl Phase {
     pub(super) fn operation_wake(&self) {
-        let deferred = {
+        let wake = {
             let mut state = self
                 .operation
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.polling {
-                state.woken = true;
-                true
-            } else {
-                false
-            }
+            state.woken = true;
+            !state.polling
         };
-        if !deferred {
+        if wake {
             self.wake_now();
         }
     }
@@ -58,10 +54,13 @@ impl Phase {
                 .operation
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.polling {
+            // A Host scan also wakes for unrelated originals. Keep an already
+            // pending controller parked until its own registered waker fires.
+            if state.polling || (state.work.is_some() && !state.woken) {
                 return Poll::Pending;
             }
             state.polling = true;
+            state.woken = false;
             let end = *state.first_end.get_or_insert(end);
             state.work.take().unwrap_or_else(|| {
                 let original = self.control.clone();
@@ -110,7 +109,7 @@ impl Phase {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             state.work = pending_work;
             state.polling = false;
-            std::mem::take(&mut state.woken)
+            state.woken
         };
         reset.finish();
         if woken {

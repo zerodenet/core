@@ -8,6 +8,7 @@ use crate::{
     },
     controlled_datagram::{metadata::MetadataViewClaim, metadata_pool::MetadataPoolPermit},
 };
+use std::future::Future;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
@@ -19,6 +20,7 @@ struct Gate {
     late_io: Mutex<Option<std::path::PathBuf>>,
     io_source: Mutex<Option<Arc<ChannelError>>>,
     entered: AtomicUsize,
+    polls: AtomicUsize,
     changed: tokio::sync::Notify,
 }
 impl Gate {
@@ -61,7 +63,13 @@ impl DynChannelControl for Control {
     fn cancel(&self, _: CloseReason) {}
     fn wait_closed(&mut self, _: Instant) -> BoxFuture<'_, Result<CloseReport, ChannelError>> {
         Box::pin(async move {
-            self.0.gate.wait().await;
+            let waiting = self.0.gate.wait();
+            tokio::pin!(waiting);
+            std::future::poll_fn(|cx| {
+                self.0.gate.polls.fetch_add(1, Ordering::Relaxed);
+                waiting.as_mut().poll(cx)
+            })
+            .await;
             if let Some(path) = self.0.gate.late_io.lock().unwrap().take() {
                 let error = std::fs::File::open(path)
                     .expect_err("actual missing original path must fail in OS");

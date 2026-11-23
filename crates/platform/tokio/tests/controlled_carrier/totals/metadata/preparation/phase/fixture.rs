@@ -160,9 +160,21 @@ pub(super) async fn run(panic_first: bool, late_io: bool) {
         assert!(!phase.is_settled());
         std::future::poll_fn(|cx| {
             totals.poll_cancelled_retirements(cx);
+            // Consume the controller's own synchronous wake on entry before
+            // comparing later scans which have no new original readiness.
+            totals.poll_cancelled_retirements(cx);
             Poll::Ready(())
         })
         .await;
+        let polls = gate.polls.load(Ordering::Relaxed);
+        std::future::poll_fn(|cx| {
+            for _ in 0..64 {
+                totals.poll_cancelled_retirements(cx);
+            }
+            Poll::Ready(())
+        })
+        .await;
+        assert_eq!(gate.polls.load(Ordering::Relaxed), polls);
         let original_fault = if panic_first {
             let failure = totals
                 .failures()

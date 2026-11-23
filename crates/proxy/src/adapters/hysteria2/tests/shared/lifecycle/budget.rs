@@ -22,7 +22,10 @@ impl tracing::field::Visit for Fields {
 }
 impl tracing::Subscriber for Budgets {
     fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
-        metadata.target() == "hysteria2::pool_budget"
+        matches!(
+            metadata.target(),
+            "hysteria2::pool_budget" | "hysteria2::pool_close"
+        )
     }
     fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
         tracing::span::Id::from_u64(1)
@@ -32,6 +35,22 @@ impl tracing::Subscriber for Budgets {
     fn enter(&self, _: &tracing::span::Id) {}
     fn exit(&self, _: &tracing::span::Id) {}
     fn event(&self, event: &tracing::Event<'_>) {
+        if event.metadata().target() == "hysteria2::pool_close" {
+            struct CloseFields;
+            impl tracing::field::Visit for CloseFields {
+                fn record_debug(
+                    &mut self,
+                    field: &tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
+                    eprint!(" {}={value:?}", field.name());
+                }
+            }
+            eprint!("pool close");
+            event.record(&mut CloseFields);
+            eprintln!();
+            return;
+        }
         let mut fields = Fields {
             entries: None,
             failures: None,
@@ -256,7 +275,9 @@ async fn hysteria2_healthy_confirmed_evictions_reuse_more_than_twice_the_entry_c
         assert!(reclaimed>=ROUNDS-CAPACITY,"real idle retirement must free all {reclaimed} charged originals before refill");
         assert!(originals[0].closed().is_some(),"pressure reclaims the actual oldest original");
         eprintln!("healthy phase=actual-host-shutdown elapsed={:?}",elapsed.elapsed());
-        proxy.protocols.shutdown_components(end()).await.unwrap();
+        if let Err(error) = proxy.protocols.shutdown_components(end()).await {
+            panic!("Hysteria2 host shutdown: {error:?}; {}", crate::logging::sources::Sources(&error));
+        }
         assert!(originals.iter().all(|original|original.closed().is_some_and(|closed|closed.matches(original) && closed.had_native_acquisition())));
         eprintln!("healthy phase=scope-native-complete elapsed={:?}",elapsed.elapsed());
         server.close().await;

@@ -65,6 +65,10 @@ impl ComponentPlan {
             .with_source(source));
         }
         let complete = report.is_complete();
+        let incomplete = report
+            .unfinished
+            .first()
+            .map(|unfinished| format!("component cleanup remains unfinished: {unfinished:?}"));
         tracing::debug!(
             ?identity,
             complete,
@@ -94,8 +98,10 @@ impl ComponentPlan {
         } else {
             Err(actual_fault.map_or_else(
                 || {
-                    let mut error =
-                        invalid(Reason::Timeout, "component cleanup remains unfinished");
+                    let mut error = invalid(
+                        Reason::Timeout,
+                        incomplete.expect("incomplete close report has an unfinished receipt"),
+                    );
                     error.stage = zero_platform_tokio::contract::Stage::Close;
                     error.component = Some(slot.id);
                     error
