@@ -6,6 +6,7 @@ use std::{
 };
 use zero_platform_tokio::controlled_carrier::{CarrierBufferLimits, CarrierOriginalTotals};
 
+#[cfg(feature = "quic")]
 #[test]
 fn native_batch_prepaid_at_quic_mtu_fits_all_pool_entries() {
     let capacity = 256;
