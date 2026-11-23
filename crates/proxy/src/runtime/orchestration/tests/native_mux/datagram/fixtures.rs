@@ -1,4 +1,60 @@
 use super::*;
+use crate::runtime::udp_ingress::{test_source, UdpIngressRuntime};
+
+// Use the source's real caller and association retirement entry for ordinary
+// Datagram roles that prepare a new original on the first packet.
+pub(super) async fn open_admitted(
+    proxy: &Proxy,
+    runtime: &test_source::Source,
+    target: Destination,
+) -> Result<(u64, BoxDatagramSession), zero_platform_tokio::contract::ChannelError> {
+    let mut session = Session::new(
+        0,
+        target.address.clone(),
+        target.port,
+        Network::Udp,
+        ProtocolType::new("native-mux-datagram-test"),
+    );
+    let admission = runtime
+        .prepare_udp_session(&mut session, "incoming")
+        .await
+        .unwrap();
+    let runtime = UdpIngressRuntime::clone(runtime)
+        .with_admission(&session, admission)
+        .unwrap();
+    let execution = runtime
+        .runtime_services()
+        .datagram_execution("incoming", &session)
+        .unwrap();
+    let slot = execution
+        .components
+        .as_ref()
+        .unwrap()
+        .configured("a")
+        .unwrap();
+    let opening = execution.reserve_datagram()?.begin_open(
+        &execution,
+        vec![slot.role_id()],
+        execution.invocation.as_ref().unwrap().cancellation(),
+    )?;
+    let association = opening.association();
+    let execution = execution.with_pending_datagram(opening.pending());
+    let mut channel = crate::component::stream_bridge::datagram::open_flow(
+        &execution,
+        &slot,
+        "a",
+        endpoint(proxy),
+        DatagramRequest {
+            association,
+            targets: DatagramTargets::Fixed(target),
+        },
+    )
+    .await?
+    .channel;
+    channel.control = opening.adopt(channel.control);
+    Ok((association.0, channel))
+}
+
 pub(super) async fn open(
     proxy: &Proxy,
     id: u64,
@@ -26,20 +82,11 @@ pub(super) async fn open(
         .unwrap()
         .configured("a")
         .unwrap();
-    let input = &proxy.engine().config().outbounds[0];
-    let (server, port) = input.protocol.endpoint().unwrap();
-    let endpoint = Destination::new(
-        {
-            assert_eq!(server, "127.0.0.1");
-            Address::Ipv4([127, 0, 0, 1])
-        },
-        port,
-    );
     crate::component::stream_bridge::datagram::open(
         &services.execution(),
         &slot,
         "a",
-        endpoint,
+        endpoint(proxy),
         DatagramRequest {
             association: AssociationId(id),
             targets,
@@ -47,6 +94,13 @@ pub(super) async fn open(
     )
     .await
     .map(|opened| opened.channel)
+}
+
+fn endpoint(proxy: &Proxy) -> Destination {
+    let input = &proxy.engine().config().outbounds[0];
+    let (server, port) = input.protocol.endpoint().unwrap();
+    assert_eq!(server, "127.0.0.1");
+    Destination::new(Address::Ipv4([127, 0, 0, 1]), port)
 }
 pub(super) struct UdpEcho {
     address: std::net::SocketAddr,

@@ -113,6 +113,8 @@ async fn connect_target(
 }
 async fn echo(stream: &mut zero_platform_tokio::contract::stream::BoxStream) {
     stream.write_all(b"real-mux").await.unwrap();
+    // Match the forwarding loop when waiting for a response from a buffered carrier.
+    stream.flush().await.unwrap();
     let mut bytes = [0; 8];
     stream.read_exact(&mut bytes).await.unwrap();
     assert_eq!(&bytes, b"real-mux");
