@@ -26,11 +26,13 @@ async fn ordinary_xmux_h3_keeps_one_original_across_two_real_users_and_replaces_
             let prefix=if borrowed {Some(fixture::start(serde_json::json!({"inbounds":[{"tag":"prefix","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"route":{"final":{"type":"direct"}}}),"prefix").await)}else{None};
             let mut nodes=vec![serde_json::json!({"tag":"node","protocol":{"type":"vless","server":"127.0.0.1","port":remote.address.port(),"id":ID,"quic":{"server_name":"localhost","ca_cert_path":ca},"split_http":{"path":"/original/","mode":mode,"xmux":{"max_concurrency":8}}}})];
             if let Some(prefix)=&prefix {nodes.insert(0,serde_json::json!({"tag":"prefix","protocol":{"type":"socks5","server":"127.0.0.1","port":prefix.address.port()}}));}
-            let mut config=serde_json::json!({"runtime":{"native_stream_max_originals":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":nodes,"route":{"final":{"type":"route","outbound":if borrowed {"chain"}else{"node"}}}});
+            // The SOCKS5 UDP donor holds separate TCP control and UDP originals.
+            let originals = if borrowed { 2 } else { 1 };
+            let mut config=serde_json::json!({"runtime":{"native_stream_max_originals":originals},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":nodes,"route":{"final":{"type":"route","outbound":if borrowed {"chain"}else{"node"}}}});
             if borrowed {config["outbound_groups"]=serde_json::json!([{"tag":"chain","type":"relay","proxies":["prefix","node"]}]);}
             let client=fixture::start(config,"entry").await;
             let cancelled=wire::Exchange::discarded(&client).await;
-            let first=wire::Exchange::open(&client).await;
+            let first=wire::Exchange::open(&client, mode != "packet-up").await;
             let original=Original::capture(&client,borrowed).await;
             if let Original::Native(_,original)=&original {
                 let receiver=original.retained_driver().expect("actual H3 unique native claim and driver ledger");
@@ -41,18 +43,18 @@ async fn ordinary_xmux_h3_keeps_one_original_across_two_real_users_and_replaces_
             // reached the target, while this second logical stream is live.
             cancelled.abandon().await;
             assert!(Original::capture(&client,borrowed).await.same(&original));
-            let second=wire::Exchange::open(&client).await;
+            let second=wire::Exchange::open(&client, mode != "packet-up").await;
             let same=Original::capture(&client,borrowed).await;assert!(same.same(&original));
             first.finish().await;
             let still=Original::capture(&client,borrowed).await;assert!(still.same(&original));
             second.finish().await;
             // Logical EOFs return their own requests, not this cached native.
-            let third=wire::Exchange::open(&client).await;
+            let third=wire::Exchange::open(&client, mode != "packet-up").await;
             assert!(Original::capture(&client,borrowed).await.same(&original));third.finish().await;
             wire::udp(&client,&original,borrowed).await;
             std::fs::remove_file(&ca).unwrap();
             client.proxy.egress_interface.invalidate_network();
-            let fourth=wire::Exchange::open(&client).await;
+            let fourth=wire::Exchange::open(&client, mode != "packet-up").await;
             let next=Original::capture(&client,borrowed).await;assert!(!next.same(&original));
             fourth.finish().await;original.returned().await;
             client.close().await;next.returned().await;original.closed_owner();next.closed_owner();

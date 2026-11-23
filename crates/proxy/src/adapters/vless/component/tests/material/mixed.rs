@@ -35,7 +35,7 @@ async fn ordinary_independent_download_preserves_actual_h1_h2_h3_half_owners_and
             if borrowed {config["outbound_groups"]=serde_json::json!([{"tag":"chain","type":"relay","proxies":["prefix","node"]}]);}
             let client=fixture::start(config,"entry").await;
             let first=Exchange::discarded(&client).await;
-            let second=Exchange::open(&client).await;
+            let second=Exchange::open(&client, false).await;
             let originals=originals::Originals::capture(&client,borrowed).await;
             // The identical 3/3 pool deliberately reuses its one actual
             // multiplexed opening; independent versions own two real halves.
@@ -44,13 +44,13 @@ async fn ordinary_independent_download_preserves_actual_h1_h2_h3_half_owners_and
             // Its original first caller is gone; the second real logical's
             // half owners and actual drivers must continue on the same book.
             second.finish().await;
-            let third=Exchange::open(&client).await;
+            let third=Exchange::open(&client, false).await;
             let latest=originals::Originals::capture(&client,borrowed).await;
             third.finish().await;
             originals::udp(&client).await;
             std::fs::remove_file(&ca).unwrap();
             client.proxy.egress_interface.invalidate_network();
-            let fourth=Exchange::open(&client).await;
+            let fourth=Exchange::open(&client, false).await;
             let fresh=originals::Originals::capture(&client,borrowed).await;
             fourth.finish().await;
             assert!(!latest.same(&fresh),"actual network generation requires fresh half originals");

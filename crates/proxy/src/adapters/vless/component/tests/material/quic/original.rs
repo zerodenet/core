@@ -59,9 +59,13 @@ impl Original {
                     }
                     Self::Borrowed(owner, origin) => {
                         origin.closed().is_some()
-                            && owner
-                                .observe()
-                                .is_some_and(|current| current.retained() == 0)
+                            && (owner.closed().is_some_and(|report| report.matches(owner))
+                                || owner.observe().is_some_and(|current| {
+                                    current
+                                        .slots()
+                                        .iter()
+                                        .all(|slot| !slot.original().same_original(origin))
+                                }))
                     }
                 };
                 if returned {

@@ -1,28 +1,34 @@
-//! Real upload EOF followed by full reverse bytes, with no application reads.
+//! Real upload, download and abandonment on the selected XHTTP mode.
 use super::*;
+use std::future::Future;
+use std::task::Poll;
+use tokio::sync::oneshot;
 pub(in crate::adapters::vless::component::tests::material) struct Exchange {
     io: TcpStream,
     peer: tokio::task::JoinHandle<()>,
     payload: Vec<u8>,
+    reply: Option<oneshot::Sender<()>>,
 }
 impl Exchange {
     pub(in crate::adapters::vless::component::tests::material) async fn open(
         client: &Running,
+        streaming_upload: bool,
     ) -> Self {
-        Self::open_with_reply(client, true).await
+        Self::open_with_reply(client, true, streaming_upload).await
     }
     pub(in crate::adapters::vless::component::tests::material) async fn discarded(
         client: &Running,
     ) -> Self {
-        Self::open_with_reply(client, false).await
+        Self::open_with_reply(client, false, false).await
     }
-    async fn open_with_reply(client: &Running, reply: bool) -> Self {
+    async fn open_with_reply(client: &Running, reply: bool, streaming_upload: bool) -> Self {
         timeout(Duration::from_secs(8), async {
             let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = target.local_addr().unwrap();
             let payload: Vec<_> = (0..262144).map(|i| (i % 251) as u8).collect();
             let expected = payload.clone();
-            let (accepted, received) = tokio::sync::oneshot::channel();
+            let (accepted, received) = oneshot::channel();
+            let (respond, response_requested) = oneshot::channel();
             let peer = tokio::spawn(async move {
                 let (mut io, _) = target.accept().await.unwrap();
                 let mut body = vec![0; expected.len()];
@@ -32,10 +38,25 @@ impl Exchange {
                     "actual complete target upload differs at {:?}",
                     body.iter().zip(&expected).position(|(a, b)| a != b)
                 );
-                accepted.send(()).unwrap();
-                let mut tail = Vec::new();
-                io.read_to_end(&mut tail).await.unwrap();
-                assert!(tail.is_empty());
+                if !reply || streaming_upload {
+                    let mut tail = Vec::new();
+                    let mut eof = std::pin::pin!(io.read_to_end(&mut tail));
+                    std::future::poll_fn(|cx| {
+                        assert!(
+                            eof.as_mut().poll(cx).is_pending(),
+                            "real target is waiting for closure"
+                        );
+                        Poll::Ready(())
+                    })
+                    .await;
+                    accepted.send(()).unwrap();
+                    assert_eq!(eof.await.unwrap(), 0);
+                } else {
+                    // The pinned packet-up sender ends its POST sequence
+                    // without a wire EOF. Respond to the real payload length.
+                    accepted.send(()).unwrap();
+                    response_requested.await.unwrap();
+                }
                 if reply {
                     io.write_all(&body).await.unwrap();
                     io.write_all(&[73; 1025]).await.unwrap();
@@ -46,12 +67,20 @@ impl Exchange {
             io.write_all(&payload).await.unwrap();
             io.flush().await.unwrap();
             received.await.unwrap();
-            Self { io, peer, payload }
+            Self {
+                io,
+                peer,
+                payload,
+                reply: (reply && !streaming_upload).then_some(respond),
+            }
         })
         .await
         .unwrap()
     }
     pub(in crate::adapters::vless::component::tests::material) async fn abandon(self) {
+        // A normal TCP close can be observed as an upload FIN, which still
+        // permits a reverse response. Reset the actual SOCKS connection.
+        self.io.set_zero_linger().unwrap();
         drop(self.io);
         timeout(Duration::from_secs(8), self.peer)
             .await
@@ -61,6 +90,9 @@ impl Exchange {
     pub(in crate::adapters::vless::component::tests::material) async fn finish(mut self) {
         timeout(Duration::from_secs(8), async {
             self.io.shutdown().await.unwrap();
+            if let Some(reply) = self.reply.take() {
+                reply.send(()).unwrap();
+            }
             let mut body = Vec::new();
             self.io.read_to_end(&mut body).await.unwrap();
             assert_eq!(body.len(), self.payload.len() + 1025);

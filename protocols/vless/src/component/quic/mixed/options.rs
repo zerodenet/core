@@ -166,6 +166,16 @@ impl Half {
             profile,
         } = half;
         if let OwnedXhttpKind::Http3(quic) = kind {
+            // The pair's recipe includes both profiles, but its two H3
+            // halves register separate material for the same instance.
+            let identity = if previous.is_some() {
+                let mut download =
+                    blake3::Hasher::new_derive_key("vless XHTTP HTTP/3 download material v1");
+                download.update(&identity);
+                *download.finalize().as_bytes()
+            } else {
+                identity
+            };
             let options = super::super::Options::from_material_parts(
                 crate::transport::OwnedQuicParts {
                     plan,
