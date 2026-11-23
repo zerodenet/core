@@ -110,8 +110,18 @@ async fn ordinary_domain_vless_grpc_dns_replaces_the_actual_node_dependency_befo
         handle
             .apply_runtime_config_and_wait(candidate, Duration::from_secs(5))
             .await
-            .unwrap();
+            .expect("settled first-candidate refusal must not fail the DNS replacement");
         native_closed(&old);
+        assert!(old
+            .driver()
+            .unwrap()
+            .try_joined()
+            .unwrap()
+            .registration_released());
+        assert!(old
+            .owner()
+            .users_closed()
+            .is_some_and(|receipt| receipt.matches(old.owner())));
         let fresh = delivered(
             &proxy,
             &mut next_node,

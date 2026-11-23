@@ -157,7 +157,13 @@ impl Managed {
             return Err(demand_error(self.instance, Reason::Timeout));
         }
         let (mut grant, physical, body) = self.install_original(demand, attempted)?;
-        *physical.view.lock().unwrap() = Some(grant.claim_driver_view()?);
+        let (view, preparation) = if self.options.scoped_preparation {
+            let (view, preparation) = grant.claim_preparing_driver_view()?;
+            (view, Some(preparation))
+        } else {
+            (grant.claim_driver_view()?, None)
+        };
+        *physical.view.lock().unwrap() = Some(view);
         // The receiver and exact native cancellation are installed before the
         // actual caller or Node provider can await resolution/connect/TLS/H2.
         let waiting = waiting.or_else(|| self.upstream.observed_pending_carrier());
@@ -193,8 +199,8 @@ impl Managed {
         };
         let prepared = self
             .wait(demand, async {
-                if self.options.scoped_preparation {
-                    super::setup::run(self, &physical, move |caller| async move {
+                if let Some(preparation) = preparation {
+                    super::setup::run(self, &physical, preparation, move |caller| async move {
                         operation(Some(caller))?.await
                     })
                     .await
@@ -223,7 +229,10 @@ impl Managed {
                 result=driver=>result.map_err(|source|error(instance,Stage::Receive,Reason::Io).with_source(source)),
             }
         })?;
-        *physical.witness.lock().unwrap() = Some(witness);
+        *physical.witness.lock().unwrap() = Some(witness.clone());
+        if let Some(preparation) = physical.adoption.preparation() {
+            preparation.publish_driver(&witness)?;
+        }
         if let Some(children) = &physical.protocols {
             if let Err(source) = children.receive_driver(&physical.adoption) {
                 physical.adoption.request_retirement();

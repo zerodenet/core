@@ -1,6 +1,10 @@
 //! Private gRPC initializer handoff; this is not another transport executor.
 use super::{state::Physical, *};
 use std::{future::Future, sync::Arc};
+use zero_platform_tokio::{
+    contract::scope::TaskJoinWitness,
+    controlled_carrier::{is_connect_rejection, CarrierPreparation},
+};
 /// Same initializer, with its exact future allocation charged before boxing.
 /// Keeping this frame out of both inline/scoped preparation branches avoids
 /// duplicating the native TLS/H2 continuation on a default worker stack.
@@ -48,14 +52,15 @@ impl Drop for CancelOnDrop {
 pub(super) async fn run<T, F, Fut>(
     owner: &Arc<Managed>,
     physical: &Arc<Physical>,
+    preparation: CarrierPreparation,
     operation: F,
 ) -> Result<T, ChannelError>
 where
     T: Send + 'static,
-    F: FnOnce(zero_platform_tokio::contract::scope::TaskJoinWitness) -> Fut + Send + 'static,
+    F: FnOnce(TaskJoinWitness) -> Fut + Send + 'static,
     Fut: Future<Output = Result<T, ChannelError>> + Send + 'static,
 {
-    let (begin, started) = tokio::sync::oneshot::channel();
+    let (begin, started) = tokio::sync::oneshot::channel::<TaskJoinWitness>();
     let (complete, completed) = tokio::sync::oneshot::channel();
     let scope_cancel = owner.scope_cancel.clone();
     let stop = physical.stop.clone();
@@ -72,12 +77,15 @@ where
                 let _ = complete.send(Err(Arc::new(error(instance,Stage::Prepare,Reason::Revoked))));
                 return Ok(());
             },
-            result = operation(caller) => result,
+            result = operation(caller.clone()) => result,
         };
         match outcome {
             Ok(prepared) => { let _ = complete.send(Ok(prepared)); Ok(()) },
             Err(source) => {
                 let source = Arc::new(source);
+                if is_connect_rejection(&source) {
+                    preparation.retain_connect_rejection_result(&caller, source.clone())?;
+                }
                 let _ = complete.send(Err(source.clone()));
                 Err(same_source(source))
             },
