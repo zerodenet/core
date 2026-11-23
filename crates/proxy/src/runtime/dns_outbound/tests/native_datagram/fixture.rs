@@ -123,10 +123,24 @@ pub(super) async fn client(
     // SOCKS has two distinct real originals (control TCP plus negotiated UDP).
     // Their actual declaration must hold both; the Query itself still has N1.
     let sockets = if remote.kind == "socks5" { 2 } else { 1 };
-    let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
+    let mut document = serde_json::json!({
         "runtime":{"native_stream_max_originals":sockets,"native_dns_max_originals":1,"dns":{"servers":{"node":{"type":"system"},"query":backend},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},
         "outbounds":[{"tag":"node","protocol":protocol}],"route":{"final":{"type":"direct"}}
-    }).to_string()).unwrap();
+    });
+    let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
+    document["outbounds"][0]["dial"] =
+        serde_json::json!({"address_family":"only_ipv4","source_ip":"127.0.0.1"});
+    let Err(error) = zero_config::RuntimeConfig::parse(&document.to_string()) else {
+        panic!(
+            "{} DNS detour must reject a non-default dial policy",
+            remote.kind
+        );
+    };
+    assert!(matches!(
+        error,
+        zero_config::ConfigError::InvalidOutbound(_)
+    ));
+    assert!(error.to_string().contains("require a direct outbound"));
     let proxy = Proxy::new(config.clone()).unwrap();
     proxy
         .resolver

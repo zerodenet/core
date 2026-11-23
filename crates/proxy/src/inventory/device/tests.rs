@@ -114,25 +114,42 @@ async fn device_recipe_consumes_only_its_same_candidate_standard_material_and_ac
 
 #[cfg(feature = "wireguard")]
 #[tokio::test]
-async fn named_leaf_keeps_its_exact_dial_policy_without_legacy_preparation() {
-    let config = with_device(&["a", "b"], "a");
-    let (inventory, plan, egress) = prepare(&config);
-    let paths = inventory
-        .prepare_device_packet_paths(
-            &config,
-            &zero_engine::EndpointAdmission::from_config(&config),
-            NetworkGeneration(egress.generation()),
-            Some(&plan),
-        )
-        .unwrap();
-    assert_eq!(paths.len(), 1);
-    let path = &paths["a"];
-    assert_eq!(
-        path.recipe.binding().dial,
-        config.outbounds[0].dial.to_policy()
-    );
-    assert!(path.recipe.binding().prefix.is_empty());
-    assert_eq!(path.identity, path_identity(&config, &[0]).unwrap());
+async fn named_leaf_and_flat_relay_keep_the_exact_actual_dial_policy() {
+    for (target, members) in [("a", &[0][..]), ("chain", &[0, 1][..])] {
+        let config = with_device(&["a", "b"], target);
+        let (inventory, plan, egress) = prepare(&config);
+        let paths = inventory
+            .prepare_device_packet_paths(
+                &config,
+                &zero_engine::EndpointAdmission::from_config(&config),
+                NetworkGeneration(egress.generation()),
+                Some(&plan),
+            )
+            .unwrap();
+        assert_eq!(paths.len(), 1);
+        let path = &paths[target];
+        assert_eq!(
+            path.recipe.binding().dial,
+            config.outbounds[0].dial.to_policy()
+        );
+        assert!(path.recipe.binding().prefix.is_empty());
+        assert_eq!(path.identity, path_identity(&config, members).unwrap());
+    }
+}
+
+#[cfg(feature = "wireguard")]
+#[test]
+fn wireguard_outer_single_member_relay_is_rejected_during_config_validation() {
+    let mut value = serde_json::to_value(with_device(&["a", "b"], "chain").as_ref()).unwrap();
+    value["outbound_groups"][0]["proxies"] = serde_json::json!(["a"]);
+    let Err(error) = RuntimeConfig::parse(&value.to_string()) else {
+        panic!("a single-member relay must be rejected before device preparation");
+    };
+    assert!(matches!(
+        error,
+        zero_config::ConfigError::InvalidOutboundGroup(_)
+    ));
+    assert!(error.to_string().contains("at least 2 proxies"));
 }
 
 #[cfg(feature = "wireguard")]

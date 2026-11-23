@@ -79,6 +79,11 @@ async fn direct(reject: bool) {
             let plan=proxy.tcp_runtime_services().components.clone().unwrap();
             let slot=plan.component(donor.instance().component).unwrap();
             assert_eq!(slot.instance_id(),donor.instance());
+            let (_, binding) = donor.selected_binding().expect("actual Direct dial binding");
+            assert_eq!(binding.dial, slot.dial);
+            assert_eq!(binding.dial.address_family, zero_traits::AddressFamily::OnlyIpv4);
+            assert_eq!(binding.dial.source_ip, Some(source.ip()));
+            assert_eq!(donor.endpoints().unwrap().local().unwrap(), source);
             let owner=slot.original_carrier_owner(0).expect("same actual Direct native owner");
             assert!(donor.owner().same_owner(&owner));
             assert_eq!(owner.limit().get(),1);
