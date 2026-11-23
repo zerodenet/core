@@ -280,7 +280,7 @@ fn opened(
         io: Box::pin(UserStream::new(io, usage)),
         origin: original,
     }
-    .into_controlled_parts()
+    .into_driver_owned_parts()
     .map_err(std::io::Error::other)?;
     let io = ExclusiveIo::new(io);
     let io = match bypass {
