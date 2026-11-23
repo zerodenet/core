@@ -71,15 +71,34 @@ impl OuterPathRecipe {
         resources
             .prepare_lifecycle_domain(&names)
             .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
-        let identities: Arc<[Arc<[u8]>]> = names
-            .iter()
-            .map(|name| {
-                resources
-                    .prepared_named_identity(name)
-                    .map_err(|source| EngineError::Io(std::io::Error::other(source)))
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into();
+        let mut members = Vec::with_capacity(names.len());
+        let mut identities = Vec::with_capacity(names.len());
+        for name in &names {
+            let input = config
+                .outbounds
+                .iter()
+                .find(|outbound| outbound.tag == *name)
+                .ok_or_else(|| invalid("actual packet path member is absent"))?;
+            let accepted = resources
+                .prepared_named_packet_path(name)
+                .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+            let identity = if let Some(actual) = &accepted {
+                (0, Vec::from(actual.recipe_identity()))
+            } else {
+                // A stateless codec projection depends on its configured
+                // options. Rebuilding its native role for a new network does
+                // not change the already-accepted formatter family.
+                (
+                    1,
+                    crate::inventory::path_identity_for(config, [input])?.to_vec(),
+                )
+            };
+            let (kind, mut identity) = identity;
+            identity.push(kind);
+            identities.push(Arc::from(identity));
+            members.push((input, accepted));
+        }
+        let identities: Arc<[Arc<[u8]>]> = identities.into();
         let projections = match materials
             .get(tag)
             .filter(|actual| actual.identities == identities)
@@ -87,15 +106,8 @@ impl OuterPathRecipe {
             Some(actual) => actual.projections.clone(),
             None => {
                 let mut values = Vec::with_capacity(names.len());
-                for name in &names {
-                    let index = config
-                        .outbounds
-                        .iter()
-                        .position(|outbound| outbound.tag == *name)
-                        .ok_or_else(|| invalid("actual packet path member is absent"))?;
-                    let accepted = resources
-                        .prepared_named_packet_path(name)
-                        .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+                for (input, accepted) in members {
+                    let name = &input.tag;
                     let projection = match accepted {
                         Some(actual) => {
                             use sha2::Digest;
@@ -122,8 +134,7 @@ impl OuterPathRecipe {
                                 formatter: None,
                             })
                         }
-                        None => registry
-                            .prepare_cold_packet_path_projection(&config.outbounds[index])?,
+                        None => registry.prepare_cold_packet_path_projection(input)?,
                     };
                     values.push(projection);
                 }

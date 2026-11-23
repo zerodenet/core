@@ -772,38 +772,26 @@ pub(crate) fn compiled_registries_with_network(
             )
             .expect("unique canonical WireGuard outbound registration");
         components.set_candidate_acceptance("wireguard", move |outbound, candidate| {
-            // Use the same endpoint admission as device preparation. A
-            // disabled endpoint owns no outbound peer graph or alias;
-            // previous actual slots still retire through the host plan.
-            if candidate.is_some_and(|candidate| {
-                !zero_engine::EndpointAdmission::from_config(candidate)
-                    .device_enabled(outbound.tag())
-            }) {
-                return false;
-            }
-            match &outbound.protocol {
-                zero_config::OutboundProtocolConfig::Wireguard {
-                    outer_udp_proxy: None,
-                    ..
-                } => true,
-                zero_config::OutboundProtocolConfig::Wireguard { .. } => {
-                    candidate.is_some_and(|candidate| {
-                        crate::adapters::mux_prefix::packet_source_selected(candidate, outbound)
-                            && crate::adapters::wireguard::lifecycle::outer_members_selected(
-                                outbound,
-                                candidate,
-                                |member| {
-                                    outer_factories.has_factory_for_candidate(
-                                        member.protocol.protocol_name(),
-                                        member,
-                                        Some(candidate),
-                                    )
-                                },
-                            )
-                    })
-                }
-                _ => false,
-            }
+            let Some(candidate) = candidate else {
+                return matches!(
+                    outbound.protocol,
+                    zero_config::OutboundProtocolConfig::Wireguard {
+                        outer_udp_proxy: None,
+                        ..
+                    }
+                );
+            };
+            crate::adapters::wireguard::lifecycle::native_candidate_selected(
+                outbound,
+                candidate,
+                |member| {
+                    outer_factories.has_factory_for_candidate(
+                        member.protocol.protocol_name(),
+                        member,
+                        Some(candidate),
+                    )
+                },
+            )
         });
         registry.register_standard_protocol(adapter);
     }

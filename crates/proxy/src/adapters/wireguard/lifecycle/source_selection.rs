@@ -5,6 +5,49 @@ use super::*;
 mod order;
 pub(crate) use order::acyclic;
 pub(super) use order::ordered_devices;
+
+pub(crate) fn native_candidate_selected(
+    outbound: &OutboundConfig,
+    config: &zero_config::RuntimeConfig,
+    other_factory_selected: impl Fn(&OutboundConfig) -> bool,
+) -> bool {
+    let admission = zero_engine::EndpointAdmission::from_config(config);
+    let mut accepted = std::collections::BTreeSet::new();
+    fn visit(
+        outbound: &OutboundConfig,
+        config: &zero_config::RuntimeConfig,
+        admission: &zero_engine::EndpointAdmission,
+        accepted: &mut std::collections::BTreeSet<String>,
+        other_factory_selected: &impl Fn(&OutboundConfig) -> bool,
+    ) -> bool {
+        if accepted.contains(outbound.tag()) {
+            return true;
+        }
+        // The packet-source grammar rejects a cycle before inspecting any
+        // member's factory. A WG donor must pass this same whole-path gate.
+        let selected = admission.device_enabled(outbound.tag())
+            && crate::adapters::mux_prefix::packet_source_selected(config, outbound)
+            && outer_members_selected(outbound, config, |member| {
+                if matches!(member.protocol, OutboundProtocolConfig::Wireguard { .. }) {
+                    visit(member, config, admission, accepted, other_factory_selected)
+                } else {
+                    other_factory_selected(member)
+                }
+            });
+        if selected {
+            accepted.insert(outbound.tag.clone());
+        }
+        selected
+    }
+    visit(
+        outbound,
+        config,
+        &admission,
+        &mut accepted,
+        &other_factory_selected,
+    )
+}
+
 pub(crate) fn outer_members_selected(
     outbound: &OutboundConfig,
     config: &zero_config::RuntimeConfig,
