@@ -161,7 +161,7 @@ impl ManagedPool {
         loop {
             self.reap_ready().map_err(std::io::Error::other)?;
             let (grant, record) = self
-                .install_original(binding, self.options.preparation_jobs)
+                .install_original(binding, self.options.scoped_preparation)
                 .map_err(std::io::Error::other)?;
             let opening = Opening(record.clone());
             let waiting = waiting
@@ -224,9 +224,9 @@ impl ManagedPool {
                             },
                         )
                         .map_err(std::io::Error::other)?;
+                    *record.witness.lock().unwrap() = Some(witness.clone());
                     self.publish_prepared_driver(&record, &witness)
                         .map_err(std::io::Error::other)?;
-                    *record.witness.lock().unwrap() = Some(witness);
                     record.registered.store(true, Ordering::Release);
                     if let Some(children) = &record.protocols {
                         if let Err(source) = children.receive_driver(&record.original) {

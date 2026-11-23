@@ -1,7 +1,10 @@
 //! Prepare the existing protocol MUX driver inside its one real Scope slot.
 use super::{failure as error, ManagedPool as Managed, Physical};
 use std::{future::Future, sync::Arc};
-use zero_platform_tokio::contract::{CancellationToken, ChannelError, Reason, Stage};
+use zero_platform_tokio::{
+    contract::{scope::TaskJoinWitness, CancellationToken, ChannelError, Reason, Stage},
+    controlled_carrier::is_connect_rejection,
+};
 
 struct CancelOnDrop(Option<CancellationToken>);
 impl Drop for CancelOnDrop {
@@ -18,16 +21,20 @@ pub(super) async fn run<T, F, Fut>(
 ) -> Result<T, ChannelError>
 where
     T: Send + 'static,
-    F: FnOnce(zero_platform_tokio::contract::scope::TaskJoinWitness) -> Fut + Send + 'static,
+    F: FnOnce(TaskJoinWitness) -> Fut + Send + 'static,
     Fut: Future<Output = Result<T, ChannelError>> + Send + 'static,
 {
-    let (begin, started) = tokio::sync::oneshot::channel();
+    let (begin, started) = tokio::sync::oneshot::channel::<TaskJoinWitness>();
     let (complete, completed) = tokio::sync::oneshot::channel();
     let scope_cancel = owner.tasks.cancellation();
     let waiter_scope = scope_cancel.clone();
     let stop = physical.stop.clone();
     let operation_stop = stop.clone();
     let instance = owner.instance;
+    let preparation = physical
+        .original
+        .preparation()
+        .ok_or_else(|| error(instance, Stage::Prepare, Reason::StalePlan))?;
     let (_, witness) = physical.original.spawn_auxiliary(&owner.tasks, async move {
         let Ok(caller) = started.await else { return Ok(()); };
         let outcome = tokio::select! { biased;
@@ -39,12 +46,15 @@ where
                 let _ = complete.send(Err(Arc::new(error(instance,Stage::Prepare,Reason::Revoked))));
                 return Ok(());
             },
-            result = operation(caller) => result,
+            result = operation(caller.clone()) => result,
         };
         match outcome {
             Ok(prepared) => { let _ = complete.send(Ok(prepared)); Ok(()) },
             Err(source) => {
                 let source = Arc::new(source);
+                if is_connect_rejection(&source) {
+                    preparation.retain_connect_rejection_result(&caller, source.clone())?;
+                }
                 let _ = complete.send(Err(source.clone()));
                 Err(ChannelError::retained(source))
             },

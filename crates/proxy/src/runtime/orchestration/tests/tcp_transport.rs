@@ -76,14 +76,15 @@ async fn materialized_transport_leaves_keep_relative_roots_and_isolate_real_mux_
             }
             let incompatible = config_at(incompatible, material.path());
             handle.apply_runtime_config_and_wait(incompatible.clone(), Duration::from_secs(5)).await.unwrap();
-            assert!(
-                connect(&outer, &incompatible, "a", fixture.echo.port())
-                    .await
-                    .is_err(),
-                "{protocol}: cached MUX bypassed changed transport authentication"
-            );
+            let Err(rejection) = connect(&outer, &incompatible, "a", fixture.echo.port()).await else {
+                panic!("{protocol}: cached MUX bypassed changed transport authentication");
+            };
+            let sources = rejection.to_string();
+            assert!(sources.contains("Handshake"), "{protocol}: {rejection:?}");
             assert_eq!(fixture.connections(), 2);
-            handle.apply_runtime_config_and_wait(config.clone(), Duration::from_secs(5)).await.unwrap();
+            handle.apply_runtime_config_and_wait(config.clone(), Duration::from_secs(5)).await.unwrap_or_else(|error| {
+                panic!("{protocol}: the delivered handshake rejection blocked restoring the real MUX owner: {error}. Original rejection: {rejection:?}. {}", crate::logging::sources::Sources(&rejection));
+            });
             round_trip(&outer, &config, "b", fixture.echo.port()).await;
             round_trip(&outer, &config, "a", fixture.echo.port()).await;
             assert_eq!(

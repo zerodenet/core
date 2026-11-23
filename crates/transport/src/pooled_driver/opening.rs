@@ -27,7 +27,7 @@ impl ManagedPool {
         record: &Physical,
         witness: &TaskJoinWitness,
     ) -> Result<(), ChannelError> {
-        if self.options.preparation_jobs {
+        if self.options.scoped_preparation {
             record
                 .original
                 .preparation()
@@ -179,9 +179,9 @@ impl ManagedPool {
             // a rejected decoy job. It is consumed once by success or that job.
             let (raw, tag) = raw.into_driver().split(|raw| (raw, ()));
             *physical.driver_input.lock().unwrap() = Some(tag);
-            let driver = prepare(raw).await.map_err(|source| {
-                failure(self.instance, Stage::Handshake, Reason::Io).with_source(source)
-            })?;
+            let driver = prepare(raw)
+                .await
+                .map_err(|source| handshake_error(self.instance, source))?;
             physical
                 .driver_input
                 .lock()
@@ -190,9 +190,9 @@ impl ManagedPool {
                 .ok_or_else(|| failure(self.instance, Stage::Handshake, Reason::StalePlan))?
                 .try_map(|()| Ok::<_, ChannelError>(driver))?
         } else {
-            raw.prepare_driver(prepare).await.map_err(|source| {
-                failure(self.instance, Stage::Handshake, Reason::Io).with_source(source)
-            })?
+            raw.prepare_driver(prepare)
+                .await
+                .map_err(|source| handshake_error(self.instance, source))?
         };
         physical.release_installed_pending();
         self.verify_epoch(&binding).map_err(|source| {
@@ -200,4 +200,33 @@ impl ManagedPool {
         })?;
         Ok(prepared)
     }
+}
+
+fn handshake_error(
+    instance: zero_core::component::ComponentInstanceId,
+    source: crate::RuntimeError,
+) -> ChannelError {
+    let rejected = false;
+    #[cfg(feature = "tls")]
+    let rejected = rejected || crate::tls::is_peer_certificate_rejection(&source);
+    #[cfg(feature = "ws")]
+    let rejected = rejected
+        || matches!(
+            &source,
+            crate::RuntimeError::Io(error)
+                if matches!(
+                    error.get_ref().and_then(|cause| cause.downcast_ref::<tokio_tungstenite::tungstenite::Error>()),
+                    Some(tokio_tungstenite::tungstenite::Error::Http(response))
+                        if response.status().is_client_error()
+                )
+        );
+    if rejected {
+        use zero_platform_tokio::contract::{network::UpstreamRejection, DeliveryState, Impact};
+        let mut error = ChannelError::new(Stage::Handshake, Reason::Io, Impact::Session)
+            .with_source(UpstreamRejection::new(source));
+        error.component = Some(instance.component);
+        error.delivery = DeliveryState::NotSubmitted;
+        return error;
+    }
+    failure(instance, Stage::Handshake, Reason::Io).with_source(source)
 }

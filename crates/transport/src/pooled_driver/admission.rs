@@ -49,7 +49,7 @@ impl ManagedPool {
     pub(super) fn install_original(
         self: &Arc<Self>,
         binding: &UpstreamBinding,
-        preparation_jobs: bool,
+        scoped_preparation: bool,
     ) -> Result<(CarrierGrant, Arc<Physical>), ChannelError> {
         let epoch = self.epoch.lock().unwrap();
         let current = (
@@ -76,7 +76,7 @@ impl ManagedPool {
             return Err(failure(self.instance, Stage::Prepare, Reason::Capacity));
         }
         let mut grant = self.grants.reserve()?;
-        let view = if preparation_jobs {
+        let view = if scoped_preparation {
             grant.claim_preparing_driver_view().map(|(view, _)| view)
         } else {
             grant.claim_driver_view()
