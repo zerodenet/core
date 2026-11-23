@@ -1,5 +1,57 @@
 use super::*;
+
+// Current wait only. The actual receipts stay in the original task and native owners.
+pub(super) type ProtocolWait = (
+    &'static str,
+    Option<zero_core::component::TaskId>,
+    Option<zero_transport::quic::owned::OwnedDriverOrigin>,
+);
+
+#[derive(Debug)]
+struct CloseTimeout {
+    waiting_for: String,
+    elapsed: Option<tokio::time::error::Elapsed>,
+}
+
+impl std::fmt::Display for CloseTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Hysteria2 close deadline while waiting for {}",
+            self.waiting_for
+        )
+    }
+}
+
+impl std::error::Error for CloseTimeout {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.elapsed.as_ref().map(|elapsed| elapsed as _)
+    }
+}
+
+pub(super) fn is_close_timeout(source: &ChannelError) -> bool {
+    std::error::Error::source(source).is_some_and(|source| source.is::<CloseTimeout>())
+}
+
 impl Entry {
+    pub(super) fn close_timeout(
+        &self,
+        waiting_for: impl std::fmt::Display,
+        elapsed: Option<tokio::time::error::Elapsed>,
+    ) -> ChannelError {
+        let progress = *self.protocol_wait.lock().unwrap();
+        let waiting_for = match progress {
+            Some((stage, task, origin)) => {
+                format!("{waiting_for}; protocol: {stage}, task {task:?}, origin {origin:?}")
+            }
+            None => waiting_for.to_string(),
+        };
+        error(Stage::Close, Reason::Timeout).with_source(CloseTimeout {
+            waiting_for,
+            elapsed,
+        })
+    }
+
     pub(super) async fn close_if_idle(&self, end: Instant) -> Result<bool, ChannelError> {
         let Ok(state) = self.state.try_lock() else {
             return Ok(false);
@@ -21,7 +73,7 @@ impl Entry {
         self.receive_setup(end).await?;
         let state = tokio::time::timeout_at(end, self.state.lock())
             .await
-            .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
+            .map_err(|source| self.close_timeout("entry state after setup join", Some(source)))?;
         if state.closed {
             return Ok(());
         }
@@ -37,7 +89,9 @@ impl Entry {
         if let Some(scope) = uncertain {
             tokio::time::timeout_at(end, scope.wait_drained())
                 .await
-                .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
+                .map_err(|source| {
+                    self.close_timeout("uncertain setup registration Scope drain", Some(source))
+                })?;
         }
         let mut state = self.state.lock().await;
         state.setup_registration = None;
@@ -46,13 +100,31 @@ impl Entry {
     }
 }
 impl EntryState {
-    pub(super) async fn retire_endpoint(&mut self, end: Instant) -> Result<(), ChannelError> {
-        self.retire_protocol_endpoint(end).await?;
+    pub(super) async fn retire_endpoint(
+        &mut self,
+        entry: &Entry,
+        end: Instant,
+    ) -> Result<(), ChannelError> {
+        tokio::time::timeout_at(end, self.retire_protocol_endpoint_original(entry))
+            .await
+            .map_err(|source| {
+                entry.close_timeout("endpoint protocol retirement", Some(source))
+            })??;
         if let Some(permit) = &self.anchor_permit {
-            permit.close(self.anchor_receipt.as_ref(), self.tasks.as_ref().unwrap())?;
+            tokio::time::timeout_at(
+                end,
+                permit.close_original(self.anchor_receipt.as_ref(), self.tasks.as_ref().unwrap()),
+            )
+            .await
+            .map_err(|source| entry.close_timeout("anchor native receipt", Some(source)))??;
         }
         if let Some(permit) = &self.permit {
-            permit.close(self.receipt.as_ref(), self.tasks.as_ref().unwrap())?;
+            tokio::time::timeout_at(
+                end,
+                permit.close_original(self.receipt.as_ref(), self.tasks.as_ref().unwrap()),
+            )
+            .await
+            .map_err(|source| entry.close_timeout("current native receipt", Some(source)))??;
             // The real phase has returned protocol custody. NativeClosed and
             // the endpoint/packet registrations still come from this provider.
             self.retiring_registrations = self.receipt.clone();
@@ -108,15 +180,10 @@ impl EntryState {
         Ok(())
     }
 
-    pub(super) async fn retire_protocol_endpoint(
+    pub(super) async fn retire_protocol_endpoint_original(
         &mut self,
-        end: Instant,
+        entry: &Entry,
     ) -> Result<(), ChannelError> {
-        tokio::time::timeout_at(end, self.retire_protocol_endpoint_original())
-            .await
-            .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?
-    }
-    pub(super) async fn retire_protocol_endpoint_original(&mut self) -> Result<(), ChannelError> {
         if self.protocol_closed {
             return Ok(());
         }
@@ -140,6 +207,8 @@ impl EntryState {
         }
         if self.udp_exit.is_none() {
             if let Some(witness) = &self.udp_join {
+                *entry.protocol_wait.lock().unwrap() =
+                    Some(("UDP reader join", witness.task_id(), None));
                 let joined = witness.wait().await;
                 if joined.result().is_err() {
                     witness
@@ -160,6 +229,12 @@ impl EntryState {
             .unwrap_or_default();
         for task in tasks {
             if !self.received.iter().any(|exit| exit.joined.id() == task) {
+                let origin = self
+                    .owner
+                    .as_ref()
+                    .and_then(|owner| owner.driver_origin(task));
+                *entry.protocol_wait.lock().unwrap() =
+                    Some(("endpoint driver receipt", Some(task), origin));
                 let exit = self
                     .receiver
                     .as_mut()
@@ -175,6 +250,8 @@ impl EntryState {
             }
         }
         if let Some(owner) = &self.owner {
+            *entry.protocol_wait.lock().unwrap() =
+                Some(("endpoint users and driver joins", None, None));
             let users = owner.shutdown_users_original().await?;
             if !users.users_and_drivers_complete() {
                 return Err(error(Stage::Close, Reason::Timeout));
@@ -182,6 +259,8 @@ impl EntryState {
         }
         if self.permit.is_some() && self.receipt.is_none() {
             if let Some(segment) = &mut self.segment {
+                *entry.protocol_wait.lock().unwrap() =
+                    Some(("packet driver and returned views", None, None));
                 let (queues, receipt) = segment.retire_final_original().await?;
                 self.queues = Some(queues);
                 self.receipt = Some(receipt);
@@ -213,6 +292,7 @@ impl EntryState {
             self.anchor_receipt = Some(completed);
         }
         self.protocol_closed = true;
+        *entry.protocol_wait.lock().unwrap() = None;
         Ok(())
     }
 }

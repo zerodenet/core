@@ -89,14 +89,23 @@ impl MetadataPoolPermit {
             )
         })
     }
+    /// Drive this exact close while another observer holds its native gate.
+    /// The caller retains its original observation deadline.
+    pub async fn close_original(
+        &self,
+        receipt: Option<&MetadataUsersClosedReceipt>,
+        tasks: &TaskRegistrar,
+    ) -> Result<MetadataPoolClosed, ChannelError> {
+        retry_native_busy(|| self.close(receipt, tasks)).await
+    }
     /// Retain only the same actual users/driver graph receipt. The persistent
     /// Root still closes the original native main/probes and checks real ACKs.
-    pub fn retain_users_receipt(
+    async fn retain_users_receipt(
         &self,
         receipt: &MetadataUsersClosedReceipt,
         tasks: &TaskRegistrar,
     ) -> Result<(), ChannelError> {
-        self.retain_users_inner(Some(receipt), tasks)
+        retry_native_busy(|| self.retain_users_inner(Some(receipt), tasks)).await
     }
     fn retain_users_inner(
         &self,
@@ -245,6 +254,14 @@ impl MetadataPoolOrigin {
         permit.retain_users_inner(Some(receipt), tasks)?;
         permit.close_native_views()
     }
+    /// Wait for the same native gate before consuming the wire close result.
+    pub async fn close_native_wire_original(
+        &self,
+        receipt: &MetadataUsersClosedReceipt,
+        tasks: &TaskRegistrar,
+    ) -> Result<Option<Arc<MetadataOwnerReport>>, ChannelError> {
+        retry_native_busy(|| self.close_native_wire(receipt, tasks)).await
+    }
     /// Read only the actual establishing registration already installed in this
     /// original. No registrar, new task, native grant or ACK is reconstructed.
     pub fn initializer_registration(&self) -> Option<TaskJoinWitness> {
@@ -264,9 +281,17 @@ impl MetadataPoolOrigin {
         })?;
         MetadataPoolPermit(slot).return_unbound(claim, tasks)
     }
+    /// Retry only transient contention while returning this same unique claim.
+    pub async fn return_unbound_original(
+        &self,
+        claim: &mut Option<super::super::metadata::MetadataViewClaim>,
+        tasks: &TaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        retry_native_busy(|| self.return_unbound(claim, tasks)).await
+    }
     /// Same original issuer/scope checks, without retaining its Slot from an
     /// installed protocol controller. This cannot open IO or mint a receipt.
-    pub fn retain_users_receipt(
+    pub async fn retain_users_receipt(
         &self,
         receipt: &MetadataUsersClosedReceipt,
         tasks: &TaskRegistrar,
@@ -277,7 +302,9 @@ impl MetadataPoolOrigin {
                 "metadata original disappeared before actual receipt",
             )
         })?;
-        MetadataPoolPermit(slot).retain_users_receipt(receipt, tasks)
+        MetadataPoolPermit(slot)
+            .retain_users_receipt(receipt, tasks)
+            .await
     }
 
     pub fn registration_observation(&self) -> MetadataPoolRegistrationObservation {

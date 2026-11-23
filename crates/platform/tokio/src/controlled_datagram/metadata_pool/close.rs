@@ -36,10 +36,18 @@ impl MetadataPoolOwner {
             if slot.closed.get().is_none() {
                 return Ok(report);
             }
-            let (caller, users) = {
-                let native = slot.native()?;
-                (slot.caller.get().cloned(), native.confirmed.clone())
+            let witnesses = tokio::time::timeout_at(
+                end,
+                retry_native_busy(|| {
+                    let native = slot.native()?;
+                    Ok((slot.caller.get().cloned(), native.confirmed.clone()))
+                }),
+            )
+            .await;
+            let Ok(witnesses) = witnesses else {
+                return Ok(report);
             };
+            let (caller, users) = witnesses?;
             let wait = async {
                 if let Some(caller) = caller {
                     caller.wait_registration_released().await;

@@ -122,6 +122,7 @@ impl MetadataTotalsOriginal {
             match MetadataPoolPermit(self.slot.clone()).close_stored() {
                 Ok(Some(_)) => changed = true,
                 Ok(None) => {}
+                Err(source) if native_busy(&source) => cx.waker().wake_by_ref(),
                 Err(source) => {
                     // A forwarded row diagnostic keeps its original paid
                     // canonical allocation; do not manufacture another Arc.

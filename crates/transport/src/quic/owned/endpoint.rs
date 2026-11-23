@@ -225,6 +225,12 @@ impl OwnedEndpointOwner {
     pub fn driver_tasks(&self) -> Vec<zero_core::component::TaskId> {
         self.drivers.tasks()
     }
+    pub fn driver_origin(
+        &self,
+        id: zero_core::component::TaskId,
+    ) -> Option<super::OwnedDriverOrigin> {
+        self.drivers.origin(id)
+    }
     pub fn driver_status(&self) -> DriverTaskStatus {
         self.drivers.task_status()
     }

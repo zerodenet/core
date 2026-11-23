@@ -57,52 +57,7 @@ impl Generation {
             entry.close(end).await?;
             self.remove_entry(&old, &entry).await?;
         }
-        let pressured = {
-            let entries = self.entries.lock().unwrap();
-            entries.len() + self.failures.lock().unwrap().len() >= self.entry_limit.get()
-                && !entries.contains_key(&key)
-        };
-        if pressured {
-            let mut candidates = self
-                .entries
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|(key, entry)| (key.clone(), entry.clone(), *entry.touched.lock().unwrap()))
-                .collect::<Vec<_>>();
-            candidates.sort_by_key(|(_, _, touched)| *touched);
-            for (old, entry, _) in candidates {
-                // The same entry gate also owns initialization and maintenance.
-                // A competing pressure request must drain a different idle
-                // original, or leave the current owner's charged slot intact.
-                let Ok(_initialization) = entry.initialization.try_lock() else {
-                    continue;
-                };
-                if entry.close_if_idle(end).await? {
-                    self.remove_entry(&old, &entry).await?;
-                    break;
-                }
-            }
-        }
-        let entry = {
-            let mut entries = self.entries.lock().unwrap();
-            if let Some(entry) = entries.get(&key) {
-                entry.clone()
-            } else {
-                if entries.len() + self.failures.lock().unwrap().len() >= self.entry_limit.get() {
-                    return Err(error(Stage::Prepare, Reason::Capacity));
-                }
-                let entry = Arc::new(Entry {
-                    resources: self.resources.clone(),
-                    initialization: Default::default(),
-                    cancel: self.cancel.child_token(),
-                    state: Default::default(),
-                    touched: Mutex::new(Instant::now()),
-                });
-                entries.insert(key.clone(), entry.clone());
-                entry
-            }
-        };
+        let entry = self.admit_entry(&key, end).await?;
         self.trace_budget();
         *entry.touched.lock().unwrap() = Instant::now();
         // Preserve the old one-initializer semantics across genuine sequential
@@ -234,4 +189,5 @@ impl Generation {
     }
 }
 
+mod admission;
 mod native;

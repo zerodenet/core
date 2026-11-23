@@ -62,6 +62,9 @@ impl Generation {
         if state.initializing || entry.cancel.is_cancelled() || state.closed {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
+        if Instant::now() >= end {
+            return Err(error(Stage::Prepare, Reason::Timeout));
+        }
         // Never replace an original caller registration still awaiting ACK.
         if state.caller.as_ref().is_some_and(|caller| {
             caller

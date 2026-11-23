@@ -84,7 +84,13 @@ impl ResourceLifecycle for Owner {
                     tokio::select! {biased;_=stop.cancelled()=>return Ok(()),_=tokio::time::sleep(Duration::from_secs(1))=>{}}
                 }
                 let Some(generation)=weak.upgrade() else{return Ok(())};
-                immediate=generation.maintain(Instant::now()+Duration::from_secs(5)).await?;
+                // The retained entries and original controllers outlive a
+                // maintenance wait. On stop, the lifecycle receives them
+                // directly instead of spending its deadline on this observer.
+                immediate=tokio::select! {biased;
+                    _=stop.cancelled()=>return Ok(()),
+                    result=generation.maintain(Instant::now()+Duration::from_secs(5))=>result?,
+                };
             }
         }).map_err(|source|error(Stage::Prepare,Reason::Capacity).with_source(source))?;
         *self.generation.maintenance.lock().unwrap() = Some(witness);

@@ -155,6 +155,8 @@ impl PoolFactory {
             metadata,
             cancel: context.cancel,
             entries: Mutex::new(HashMap::new()),
+            entry_admission: tokio::sync::Mutex::new(()),
+            entry_released: tokio::sync::Notify::new(),
             failures: Mutex::new(Vec::new()),
             maintenance: Mutex::new(None),
             maintenance_cursor: Mutex::new(0),
@@ -192,6 +194,8 @@ pub(super) struct Generation {
     metadata: Vec<MetadataPoolOwner>,
     cancel: zero_platform_tokio::contract::CancellationToken,
     entries: Mutex<HashMap<Key, Arc<Entry>>>,
+    entry_admission: tokio::sync::Mutex<()>,
+    entry_released: tokio::sync::Notify,
     failures: Mutex<Vec<ledger::FailedGroup>>,
     maintenance: Mutex<Option<TaskJoinWitness>>,
     maintenance_cursor: Mutex<usize>,
@@ -214,6 +218,7 @@ struct Entry {
     cancel: zero_platform_tokio::contract::CancellationToken,
     state: tokio::sync::Mutex<EntryState>,
     touched: Mutex<Instant>,
+    protocol_wait: Mutex<Option<close::ProtocolWait>>,
 }
 #[derive(Default)]
 struct EntryState {

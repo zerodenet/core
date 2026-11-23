@@ -188,6 +188,7 @@ async fn failure_budget(limit: Option<usize>) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn hysteria2_healthy_confirmed_evictions_reuse_more_than_twice_the_entry_capacity() {
+    use futures_util::StreamExt;
     tokio::time::timeout(Duration::from_secs(60),async {
         const CAPACITY: usize = 256;
         const ROUNDS: usize = 2 * CAPACITY + 1;
@@ -239,10 +240,14 @@ async fn hysteria2_healthy_confirmed_evictions_reuse_more_than_twice_the_entry_c
             }
             assert_eq!(server.authenticated.load(Ordering::SeqCst),CAPACITY);
             assert!(originals.iter().all(|original|original.closed().is_none()));
-            // QUIC drains different originals concurrently once the pool is full.
-            for start in (CAPACITY..ROUNDS).step_by(BATCH_SIZE) {
-                originals.extend(futures_util::future::join_all((start..(start+BATCH_SIZE).min(ROUNDS)).map(open_and_return)).await);
-            }
+            // Keep the offered concurrency constant while other real
+            // originals drain, as independent arrivals would.
+            let reclaimed = futures_util::stream::iter(CAPACITY..ROUNDS)
+                .map(open_and_return)
+                .buffer_unordered(BATCH_SIZE)
+                .collect::<Vec<_>>()
+                .await;
+            originals.extend(reclaimed);
             originals
         }).await;
         assert!(budgets.0.lock().unwrap().iter().all(|(entries,failures)|*entries<=CAPACITY as u64 && *failures==0));

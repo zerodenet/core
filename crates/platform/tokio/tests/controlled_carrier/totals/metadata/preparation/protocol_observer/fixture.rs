@@ -80,18 +80,20 @@ impl DynChannelControl for Control {
                 *self.0.claim.lock().unwrap() = claim;
             }
             let mut claim = self.0.claim.lock().unwrap().take();
+            let users = self.0.users.lock().unwrap().clone();
             if claim.is_some() {
                 self.0
                     .origin
                     .get()
                     .unwrap()
                     .return_unbound(&mut claim, &self.0.tasks)?;
-            } else if let Some(users) = self.0.users.lock().unwrap().as_ref() {
+            } else if let Some(users) = users {
                 self.0
                     .origin
                     .get()
                     .unwrap()
-                    .retain_users_receipt(users, &self.0.tasks)?;
+                    .retain_users_receipt(&users, &self.0.tasks)
+                    .await?;
             } else {
                 assert!(
                     self.0.origin.get().unwrap().endpoints().is_none(),

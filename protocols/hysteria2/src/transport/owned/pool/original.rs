@@ -31,7 +31,9 @@ impl DynChannelControl for Control {
                 .ok_or_else(|| error(Stage::Close, Reason::Revoked))?;
             // The original setup task observes this exact stop token. Retain
             // its exit before waiting for the state it held across native IO.
+            *entry.protocol_wait.lock().unwrap() = Some(("setup exit receipt", None, None));
             entry.receive_setup_original().await?;
+            *entry.protocol_wait.lock().unwrap() = Some(("entry state", None, None));
             let mut state = entry.state.lock().await;
             if !state
                 .protocol_origin
@@ -40,15 +42,17 @@ impl DynChannelControl for Control {
             {
                 return Err(error(Stage::Close, Reason::StalePlan));
             }
-            state.retire_protocol_endpoint_original().await?;
+            state.retire_protocol_endpoint_original(&entry).await?;
             if let Some(receipt) = state.anchor_receipt.as_ref().or(state.receipt.as_ref()) {
-                origin.retain_users_receipt(
-                    receipt,
-                    state
-                        .tasks
-                        .as_ref()
-                        .ok_or_else(|| error(Stage::Close, Reason::Internal))?,
-                )?;
+                origin
+                    .retain_users_receipt(
+                        receipt,
+                        state
+                            .tasks
+                            .as_ref()
+                            .ok_or_else(|| error(Stage::Close, Reason::Internal))?,
+                    )
+                    .await?;
             }
             // Only protocol, driver-body and transferred-view cleanup is
             // reported here. Native closure and real Host ACKs stay separate.
@@ -142,16 +146,14 @@ impl Entry {
             // Never hold Entry state while its Root-held controller needs that
             // same state. This drives the existing persistent phase inline.
             if !origin.retire_protocol(&tasks, end).await? {
-                return Err(error(Stage::Close, Reason::Timeout).with_source(
-                    std::io::Error::other(
-                        "original Hysteria2 endpoint protocol retirement remained pending",
-                    ),
-                ));
+                return Err(self.close_timeout("original endpoint protocol retirement", None));
             }
         }
         let mut state = tokio::time::timeout_at(end, self.state.lock())
             .await
-            .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
-        state.retire_endpoint(end).await
+            .map_err(|source| {
+                self.close_timeout("entry state before native close", Some(source))
+            })?;
+        state.retire_endpoint(self, end).await
     }
 }

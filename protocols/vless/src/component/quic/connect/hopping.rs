@@ -70,7 +70,12 @@ impl Hopping {
             );
         }
         let receipt = wire.receipt.as_ref().unwrap();
-        if wire.origin.close_native_wire(receipt, tasks)?.is_none() {
+        if wire
+            .origin
+            .close_native_wire_original(receipt, tasks)
+            .await?
+            .is_none()
+        {
             return Err(error(Stage::Close, Reason::Timeout));
         }
         for registration in receipt
@@ -83,7 +88,7 @@ impl Hopping {
             initializer.wait_registration_released().await;
         }
         if let Some(permit) = wire.permit.as_ref() {
-            permit.close(Some(receipt), tasks)?;
+            permit.close_original(Some(receipt), tasks).await?;
             wire.origin.registration_observation().wait_original().await;
         }
         // The first original still anchors the complete protocol phase. Its

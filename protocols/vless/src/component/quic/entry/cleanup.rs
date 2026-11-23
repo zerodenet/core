@@ -149,11 +149,6 @@ impl Owners {
                 unreachable!()
             };
             let (queues, receipt) = segment.retire_final_original().await?;
-            state
-                .native_origin
-                .as_ref()
-                .expect("same actual native issuer")
-                .retain_users_receipt(&receipt, &self.tasks)?;
             state.queues = Some(queues);
             state.native_users = Some(receipt);
         } else if state.unbound.is_some() {
@@ -161,10 +156,12 @@ impl Owners {
                 .native_origin
                 .clone()
                 .expect("same actual native issuer");
-            origin.return_unbound(
-                &mut state.unbound.as_mut().unwrap().users_claim,
-                &self.tasks,
-            )?;
+            origin
+                .return_unbound_original(
+                    &mut state.unbound.as_mut().unwrap().users_claim,
+                    &self.tasks,
+                )
+                .await?;
             drop(state.unbound.take());
         }
         if let Some(receipt) = state.native_users.as_ref() {
@@ -172,7 +169,11 @@ impl Owners {
                 .native_origin
                 .as_ref()
                 .expect("same native wire issuer");
-            if original.close_native_wire(receipt, &self.tasks)?.is_none() {
+            if original
+                .close_native_wire_original(receipt, &self.tasks)
+                .await?
+                .is_none()
+            {
                 return Ok(CloseReport {
                     unfinished: vec![
                         zero_platform_tokio::contract::lifecycle::Unfinished::Resource(

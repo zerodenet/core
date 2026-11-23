@@ -8,7 +8,7 @@ impl Entry {
     ) -> Result<(), ChannelError> {
         tokio::time::timeout_at(end, self.receive_setup_original())
             .await
-            .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?
+            .map_err(|source| self.close_timeout("setup exit receipt", Some(source)))?
     }
     pub(in crate::transport::owned::pool) async fn receive_setup_original(
         &self,
@@ -53,7 +53,12 @@ impl Entry {
         if let Some(caller) = caller {
             let joined = tokio::time::timeout_at(end, caller.wait_registration_released())
                 .await
-                .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
+                .map_err(|source| {
+                    self.close_timeout(
+                        format_args!("setup registration ACK for {:?}", caller.task_id()),
+                        Some(source),
+                    )
+                })?;
             if !caller.matches_joined(&joined) || !joined.registration_released() {
                 return Err(error(Stage::Close, Reason::Internal));
             }
@@ -76,7 +81,12 @@ impl Entry {
             {
                 let joined = tokio::time::timeout_at(end, original.wait_registration_released())
                     .await
-                    .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
+                    .map_err(|source| {
+                        self.close_timeout(
+                            format_args!("endpoint registration ACK for {:?}", original.task_id()),
+                            Some(source),
+                        )
+                    })?;
                 if !original.matches_joined(&joined) || !joined.registration_released() {
                     return Err(error(Stage::Close, Reason::Internal));
                 }

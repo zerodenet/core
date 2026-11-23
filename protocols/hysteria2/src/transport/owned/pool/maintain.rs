@@ -32,18 +32,27 @@ impl Generation {
                         .max_idle_timeout_secs,
                 );
             let failed = state.attempted && state.auth.is_none();
+            let retiring = entry.cancel.is_cancelled();
             let hop = state.next_hop.is_some_and(|time| Instant::now() >= time);
             drop(state);
-            let worked = if failed {
-                entry.close(end).await?;
-                self.remove_entry(&key, &entry).await?;
-                true
-            } else if idle && expired {
-                if entry.close_if_idle(end).await? {
-                    self.remove_entry(&key, &entry).await?;
-                    true
+            let worked = if retiring || failed || (idle && expired) {
+                let closed = if retiring || failed {
+                    entry.close(end).await.map(|()| true)
                 } else {
-                    false
+                    entry.close_if_idle(end).await
+                };
+                match closed {
+                    Ok(true) => {
+                        self.remove_entry(&key, &entry).await?;
+                        true
+                    }
+                    Ok(false) => false,
+                    Err(source) if close::is_close_timeout(&source) => {
+                        // The original controller still owns the in-progress
+                        // close. Keep its charge and resume on the next tick.
+                        return Ok(false);
+                    }
+                    Err(source) => return Err(source),
                 }
             } else if hop {
                 self.setup_hop(&entry, key.profile, end).await?
@@ -106,9 +115,13 @@ impl Generation {
         // This is the original provider's real native/probe close. No next
         // socket, endpoint or worker is prepared until it confirms this slot.
         let original = state.origin.as_ref().unwrap();
-        let closed = original
-            .close_native_wire(state.receipt.as_ref().unwrap(), &self.tasks)
-            .and_then(|closed| closed.ok_or_else(|| error(Stage::Close, Reason::Timeout)));
+        let closed = tokio::time::timeout_at(
+            end,
+            original.close_native_wire_original(state.receipt.as_ref().unwrap(), &self.tasks),
+        )
+        .await
+        .map_err(|source| entry.close_timeout("previous hop native receipt", Some(source)))?
+        .and_then(|closed| closed.ok_or_else(|| error(Stage::Close, Reason::Timeout)));
         drop(state);
         entry.receive_native_failure().await?;
         closed?;
@@ -124,11 +137,13 @@ impl Generation {
             state.anchor_permit = state.permit.take();
             state.anchor_receipt = state.receipt.clone();
         } else {
-            state
-                .permit
-                .as_ref()
-                .unwrap()
-                .close(state.receipt.as_ref(), &self.tasks)?;
+            let permit = state.permit.as_ref().unwrap();
+            tokio::time::timeout_at(
+                end,
+                permit.close_original(state.receipt.as_ref(), &self.tasks),
+            )
+            .await
+            .map_err(|source| entry.close_timeout("previous hop registration", Some(source)))??;
             state.previous_permit = state.permit.take();
         }
         state.retiring_registrations = state.receipt.take();

@@ -95,8 +95,38 @@ impl Slot {
             Ok(guard) => Ok(guard),
             Err(std::sync::TryLockError::Poisoned(poisoned)) => Ok(poisoned.into_inner()),
             Err(std::sync::TryLockError::WouldBlock) => {
-                Err(error(Reason::Capacity, "metadata original owner is busy"))
+                let mut error =
+                    ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component)
+                        .with_source(NativeBusy);
+                error.delivery = DeliveryState::NotSubmitted;
+                Err(error)
             }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct NativeBusy;
+
+impl std::fmt::Display for NativeBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("metadata original owner is busy")
+    }
+}
+
+impl std::error::Error for NativeBusy {}
+
+fn native_busy(source: &ChannelError) -> bool {
+    std::error::Error::source(source).is_some_and(|source| source.is::<NativeBusy>())
+}
+
+async fn retry_native_busy<T>(
+    mut attempt: impl FnMut() -> Result<T, ChannelError>,
+) -> Result<T, ChannelError> {
+    loop {
+        match attempt() {
+            Err(source) if native_busy(&source) => tokio::task::yield_now().await,
+            result => return result,
         }
     }
 }
@@ -207,6 +237,9 @@ impl MetadataPoolOwner {
                 Ok(None) => report.unfinished.push(Unfinished::Resource(
                     "metadata original users/native close remains unconfirmed".into(),
                 )),
+                Err(source) if native_busy(&source) => report.unfinished.push(
+                    Unfinished::Resource("metadata original native state is busy".into()),
+                ),
                 Err(source) => {
                     failure.get_or_insert(source);
                 }

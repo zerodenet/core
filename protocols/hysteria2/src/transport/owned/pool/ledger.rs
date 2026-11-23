@@ -110,6 +110,7 @@ impl Generation {
         if !state.closed {
             return Err(error(Stage::Close, Reason::Internal));
         }
+        let retains_charge = state.has_failures();
         let removed = {
             let mut entries = self.entries.lock().unwrap();
             if !entries
@@ -118,7 +119,7 @@ impl Generation {
             {
                 return Ok(());
             }
-            if state.has_failures() {
+            if retains_charge {
                 // Exchange this existing entry position for its actual settled
                 // failure group. No additional capacity is created or refunded.
                 self.failures.lock().unwrap().push(state.take_failures());
@@ -127,6 +128,9 @@ impl Generation {
         };
         drop(state);
         drop(removed);
+        if !retains_charge {
+            self.entry_released.notify_waiters();
+        }
         self.trace_budget();
         Ok(())
     }
