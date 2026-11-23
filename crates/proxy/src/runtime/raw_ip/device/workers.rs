@@ -114,12 +114,7 @@ impl DeviceWorkers {
     ) -> Result<(), EngineError> {
         if let Some(owner) = self.scoped() {
             let witness = owner
-                .spawn_tracked(async move {
-                    driver.await.map_err(|source| {
-                        ChannelError::new(Stage::Receive, Reason::Io, Impact::Component)
-                            .with_source(source)
-                    })
-                })
+                .spawn_tracked(async move { driver.await.map_err(driver_failure) })
                 .map_err(as_engine)?;
             self.driver.set(witness).map_err(|_| {
                 as_engine(ChannelError::new(
@@ -142,6 +137,18 @@ impl DeviceWorkers {
         {
             self.spawn_fixture_driver(driver)
         }
+    }
+    #[cfg(test)]
+    pub(super) fn spawn_packet_worker(
+        &self,
+        worker: impl Future<Output = Result<(), EngineError>> + Send + 'static,
+    ) -> Result<(), EngineError> {
+        if let Some(owner) = self.scoped() {
+            return owner
+                .spawn(async move { worker.await.map_err(driver_failure) })
+                .map_err(as_engine);
+        }
+        self.spawn_fixture_driver(worker)
     }
     pub(super) fn first_scoped_failure(&self) -> Option<EngineError> {
         self.scoped()
@@ -221,6 +228,10 @@ impl zero_stack::TcpTaskOwner for DeviceWorkers {
 
 fn as_engine(source: ChannelError) -> EngineError {
     EngineError::Io(std::io::Error::other(source))
+}
+
+fn driver_failure(source: EngineError) -> ChannelError {
+    ChannelError::new(Stage::Receive, Reason::Io, Impact::Component).with_source(source)
 }
 
 #[cfg(test)]

@@ -224,7 +224,7 @@ impl SharedRawIpDevice {
             Box<dyn std::future::Future<Output = Result<(), EngineError>> + Send + 'static>,
         >,
     ) -> Result<(), EngineError> {
-        self.task.spawn_driver(worker)
+        self.task.spawn_packet_worker(worker)
     }
     #[cfg(test)]
     pub(crate) fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
