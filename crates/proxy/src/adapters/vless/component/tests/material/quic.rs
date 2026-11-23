@@ -12,7 +12,7 @@ pub(super) mod original;
 #[path = "quic/wire.rs"]
 mod wire;
 #[tokio::test]
-async fn ordinary_quic_native_and_borrowed_share_actual_n1_and_return_each_original() {
+async fn ordinary_quic_native_and_socks_borrowed_paths_return_each_original() {
     timeout(Duration::from_secs(45),async {
         for borrowed in [false,true] {
             let directory=tempfile::tempdir().unwrap();
@@ -32,8 +32,11 @@ async fn ordinary_quic_native_and_borrowed_share_actual_n1_and_return_each_origi
             if let Some(prefix)=&prefix {
                 nodes.insert(0,serde_json::json!({"tag":"prefix","protocol":{"type":"socks5","server":"127.0.0.1","port":prefix.address.port()}}));
             }
+            // Native QUIC needs one original. The borrowed case also runs an
+            // actual SOCKS UDP association with separate TCP and UDP originals.
+            let originals = if borrowed { 2 } else { 1 };
             let mut document=serde_json::json!({
-                "runtime":{"native_stream_max_originals":1},
+                "runtime":{"native_stream_max_originals":originals},
                 "inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],
                 "outbounds":nodes,"route":{"final":{"type":"route","outbound":if borrowed {"chain"}else{"node"}}}
             });
@@ -47,6 +50,10 @@ async fn ordinary_quic_native_and_borrowed_share_actual_n1_and_return_each_origi
             // the exact same resourceful owning recipe, never a raw executor.
             assert!(slot.original_metadata_owner(0).is_some());
             assert!(slot.original_carrier_owner(1).is_some());
+            if borrowed {
+                let donor = plan.configured("prefix").unwrap().original_carrier_owner(0).unwrap();
+                assert_eq!(donor.limit().get(), 2);
+            }
             let first=wire::tcp(&client,borrowed).await;
             first.returned().await;
             std::fs::remove_file(&cert).unwrap();
