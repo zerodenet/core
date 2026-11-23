@@ -1,8 +1,11 @@
 use super::*;
 use base64::Engine;
+use tokio::io::AsyncWriteExt;
 use tokio_tungstenite::tungstenite::{
     handshake::server::{ErrorResponse, Request as ServerRequest, Response},
     http::Request,
+    protocol::Role,
+    Error,
 };
 use zero_traits::WebSocketTransportProfile;
 
@@ -31,7 +34,7 @@ where
     Ok(socket)
 }
 async fn accept<S>(
-    stream: S,
+    mut stream: S,
     path: &str,
     host: Option<&str>,
 ) -> Result<WebSocketSocket<S>, RuntimeError>
@@ -77,10 +80,21 @@ where
             }
             Ok(response)
         };
-    let stream = tokio_tungstenite::accept_hdr_async(stream, callback)
+    // Tungstenite completes the server handshake after writing the HTTP
+    // reply, without flushing it. Keep the same carrier available to flush
+    // buffered success and rejection replies before returning to its owner.
+    let reply = tokio_tungstenite::accept_hdr_async(&mut stream, callback)
         .await
-        .map_err(io::Error::other)?;
-    let mut socket = WebSocketSocket::new(stream);
+        .map(drop);
+    if reply.is_ok() || matches!(&reply, Err(Error::Http(_))) {
+        stream.flush().await?;
+    }
+    reply.map_err(io::Error::other)?;
+    // The server handshake rejects unread tail bytes before accepting, and
+    // no WebSocket frames have been polled yet. Resume on the same stream.
+    let wire =
+        tokio_tungstenite::WebSocketStream::from_raw_socket(stream, Role::Server, None).await;
+    let mut socket = WebSocketSocket::new(wire);
     socket.read_buffer = early;
     Ok(socket)
 }

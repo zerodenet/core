@@ -62,3 +62,24 @@ async fn websocket_shutdown_flushes_the_server_close_through_a_buffered_transpor
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn websocket_rejection_reaches_the_peer_through_a_buffered_transport() {
+    use tokio::io::BufStream;
+    use tokio_tungstenite::tungstenite::{http::StatusCode, Error};
+    use zero_transport::RuntimeError;
+
+    let (client, server) = tokio::io::duplex(4096);
+    let (client, server) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        tokio::join!(
+            tokio_tungstenite::client_async("ws://localhost/rejected", client),
+            zero_transport::ws::accept_ws(BufStream::new(server), "/accepted"),
+        )
+    })
+    .await
+    .unwrap();
+    assert!(matches!(client, Err(Error::Http(reply)) if reply.status() == StatusCode::NOT_FOUND));
+    assert!(matches!(server, Err(RuntimeError::Io(error))
+        if matches!(error.get_ref().and_then(|cause| cause.downcast_ref::<Error>()),
+            Some(Error::Http(reply)) if reply.status() == StatusCode::NOT_FOUND)));
+}
