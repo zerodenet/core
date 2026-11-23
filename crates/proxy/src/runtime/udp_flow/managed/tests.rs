@@ -23,7 +23,11 @@ fn input(payload: &[u8]) -> UdpPipeInput<'_> {
         domain_memory: None,
     }
 }
-async fn exchange(proxy: &Proxy, payloads: &[&[u8]]) {
+async fn exchange(
+    proxy: &Proxy,
+    payloads: &[&[u8]],
+    mut wire_lengths: Option<tokio::sync::mpsc::Receiver<usize>>,
+) {
     let payloads: Vec<Vec<u8>> = payloads.iter().map(|bytes| bytes.to_vec()).collect();
     crate::runtime::udp_ingress::test_source::run(proxy, move |proxy, runtime| async move {
         let returns =
@@ -35,6 +39,7 @@ async fn exchange(proxy: &Proxy, payloads: &[&[u8]]) {
             .unwrap();
         let mut previous = None;
         let mut total = 0;
+        let mut transmitted = 0;
         for payload in &payloads {
             let id = proxy
                 .protocols
@@ -59,13 +64,17 @@ async fn exchange(proxy: &Proxy, payloads: &[&[u8]]) {
                 packet.3,
             );
             total += payload.len() as u64;
+            transmitted += match &mut wire_lengths {
+                Some(lengths) => lengths.recv().await.unwrap() as u64,
+                None => payload.len() as u64,
+            };
             let active = proxy
                 .engine()
                 .active_sessions()
                 .into_iter()
                 .find(|s| s.id == id)
                 .unwrap();
-            assert_eq!(active.outbound_tx_bytes, total);
+            assert_eq!(active.outbound_tx_bytes, transmitted);
             assert_eq!(active.outbound_rx_bytes, total);
         }
         // The same fixture Source retains Direct/response originals; its host
@@ -82,12 +91,16 @@ async fn shadowsocks_actual_udp_connection_preserves_two_packets_one_socket_and_
         let peer=tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();let port=peer.local_addr().unwrap().port();
         let codec=::shadowsocks::transport::ShadowsocksTransportLeaf::new("peer","127.0.0.1",port,
             "chacha20-ietf-poly1305","typed-password").udp_packet_path_plan().unwrap().carrier_codec();
+        let (wire_length, received_lengths) = tokio::sync::mpsc::channel(1);
         let worker=tokio::spawn(async move {
             let mut original=None;let mut buffer=vec![0;65535];
             for expected in [b"first".as_slice(),b"second".as_slice()] {
                 let (n,source)=peer.recv_from(&mut buffer).await.unwrap();
                 if let Some(original)=original {assert_eq!(source,original);}original=Some(source);
                 let (target,port,payload)=codec.decode(&buffer[..n]).unwrap();assert_eq!(payload,expected);
+                // The sender reports the actual encoded datagram length.
+                assert!(n > payload.len());
+                wire_length.send(n).await.unwrap();
                 let response=codec.encode(&target,port,&payload).unwrap();peer.send_to(&response,source).await.unwrap();
             }
         });
@@ -100,7 +113,7 @@ async fn shadowsocks_actual_udp_connection_preserves_two_packets_one_socket_and_
         let config=proxy.engine().config();
         proxy.protocols.start_components(config.clone(),tokio::time::Instant::now()+Duration::from_secs(5)).await.unwrap();
         proxy.protocols.commit_components(&config,||Ok(())).unwrap();
-        exchange(&proxy,&[b"first",b"second"]).await;worker.await.unwrap();
+        exchange(&proxy,&[b"first",b"second"],Some(received_lengths)).await;worker.await.unwrap();
         proxy.protocols.shutdown_components(tokio::time::Instant::now()+Duration::from_secs(5)).await.unwrap();
     }).await.unwrap();
 }
@@ -144,7 +157,7 @@ async fn hysteria2_actual_udp_preserves_pre_sent_first_packet_reuse_tls_and_acco
         let proxy=Proxy::new(config).unwrap();
         let config=proxy.engine().runtime_snapshot().config().clone();let end=tokio::time::Instant::now()+Duration::from_secs(5);
         proxy.protocols.start_components(config.clone(),end).await.unwrap();proxy.protocols.commit_components(&config,||Ok(())).unwrap();
-        exchange(&proxy,&[b"first",b"second"]).await;
+        exchange(&proxy,&[b"first",b"second"],None).await;
         done.send(()).unwrap();worker.await.unwrap();proxy.protocols.shutdown_components(tokio::time::Instant::now()+Duration::from_secs(5)).await.unwrap();
     }).await.unwrap();
 }

@@ -3,7 +3,7 @@ use super::framed::{authenticate, exercise, start};
 use std::{future::Future, net::SocketAddr, task::Poll, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-async fn half_close(endpoint: SocketAddr) {
+async fn masked_tcp_exchange(endpoint: SocketAddr, upload_eof: bool) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let payload = vec![0x3a; 131073];
@@ -14,8 +14,8 @@ async fn half_close(endpoint: SocketAddr) {
         let mut received = vec![0; expected.len()];
         io.read_exact(&mut received).await.unwrap();
         assert_eq!(received, expected);
-        let mut tail = Vec::new();
-        {
+        if upload_eof {
+            let mut tail = Vec::new();
             let mut read = std::pin::pin!(io.read_to_end(&mut tail));
             // Establish suspension of this real original read, before the client
             // sends FIN. A sleep or worker-registration marker would not do that.
@@ -26,8 +26,10 @@ async fn half_close(endpoint: SocketAddr) {
             .await;
             pending_tx.send(()).unwrap();
             read.await.unwrap();
+            assert!(tail.is_empty());
+        } else {
+            pending_tx.send(()).unwrap();
         }
-        assert!(tail.is_empty());
         io.write_all(&received).await.unwrap();
         io.shutdown().await.unwrap();
     });
@@ -41,10 +43,13 @@ async fn half_close(endpoint: SocketAddr) {
     io.write_all(&payload).await.unwrap();
     io.flush().await.unwrap();
     pending_rx.await.unwrap();
-    io.shutdown().await.unwrap();
+    if upload_eof {
+        io.shutdown().await.unwrap();
+    }
     let mut response = Vec::new();
     io.read_to_end(&mut response).await.unwrap();
-    assert_eq!(response, payload);
+    assert_eq!(response.len(), payload.len());
+    assert!(response == payload, "full masked response bytes differ");
     original.await.unwrap();
 }
 
@@ -141,9 +146,16 @@ async fn native_mask_sources_keep_custom_sudoku_fragment_tcp_udp_and_original_cl
         let local_owner = client.system_tun_source_registry().owner("entry").unwrap();
         let remote_owner = remote.system_tun_source_registry().owner("entry").unwrap();
         let scope = remote_owner.original_scope_for_test();
+        // Standalone WebSocket uses the closing handshake, and packet-up
+        // has no terminal upload frame. Both still carry the full reply.
+        let upload_eof = (carrier.get("ws").is_none() || carrier.get("mux_concurrency").is_some())
+            && carrier
+                .pointer("/split_http/mode")
+                .and_then(|mode| mode.as_str())
+                != Some("packet-up");
         let result = tokio::time::timeout(Duration::from_secs(30), async {
             exercise(socks).await;
-            half_close(socks).await;
+            masked_tcp_exchange(socks, upload_eof).await;
         })
         .await;
         client_running.shutdown().await.unwrap();

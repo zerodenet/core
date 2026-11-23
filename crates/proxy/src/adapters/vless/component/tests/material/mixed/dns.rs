@@ -19,11 +19,16 @@ async fn two_independent_h3_dns_halves_use_udp_and_return_query_before_cached_na
         let download = peer::Peer::with_registry(&certificate, registry).await;
         let mut dns = crate::dns_fixture::Dns::new().await;
         let client = start((3, upload.address(3)), (3, download.address(3)), &ca, dns.server()).await;
-        let plan = client.proxy.tcp_runtime_services().components.clone().unwrap();
-        let slot = plan.configured("node").unwrap();
-        let declared = slot.recipe.spec().resources.iter().filter(|resource| matches!(resource,
-            zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {datagram:true,..})).count();
-        assert_eq!(declared, 2, "both actual H3 half issuers exist before DNS selection");
+        let instance = {
+            let plan = client.proxy.tcp_runtime_services().components.clone().unwrap();
+            let slot = plan.configured("node").unwrap();
+            let declared = slot.recipe.spec().resources.iter().filter(|resource| matches!(resource,
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {datagram:true,..})).count();
+            assert_eq!(declared, 2, "both actual H3 half issuers exist before DNS selection");
+            // Only the identity is needed. A retained plan owns both halves'
+            // material and would keep it charged after native retirement.
+            slot.instance_id()
+        };
         let mut first = None::<originals::Originals>;
         for (index, cancel) in [false, true, false].into_iter().enumerate() {
             let mut work = query(&client, &format!("{index}.two-half.actual.dns.test"));
@@ -35,7 +40,7 @@ async fn two_independent_h3_dns_halves_use_udp_and_return_query_before_cached_na
             let actual = pending(&client).await;
             let child = actual.original.as_ref().unwrap();
             let donor = child.parent().expect("actual cached original retained by the DNS child");
-            assert_eq!(donor.instance(), slot.instance_id());
+            assert_eq!(donor.instance(), instance);
             assert!(child.closed().is_none() && donor.closed().is_none());
             let current = originals::Originals::capture(&client, false).await;
             assert_eq!(current.actual_halves, 2);
