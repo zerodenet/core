@@ -260,15 +260,27 @@ async fn ordinary_new_candidate_with_the_same_ca_path_and_profile_reads_the_rota
             drop(plan);
             std::fs::write(&path, &peer.replacement_pem).unwrap();
             peer.rotate_authority();
+            let mut candidate = config;
+            candidate.route = serde_json::from_value(serde_json::json!({
+                "final": {"type": "route", "outbound": "grpc"}
+            }))
+            .unwrap();
+            handle
+                .apply_runtime_config_and_wait(candidate.clone(), Duration::from_secs(5))
+                .await
+                .unwrap();
             echo(&mut first).await;
+            let mut second = loan(&proxy).await;
+            assert!(second.owner.original().same_original(&prior));
+            echo(&mut second).await;
+            returned(second).await;
             assert_eq!(peer.accepts.load(Ordering::SeqCst), 1);
             assert!(
                 prior.closed().is_none(),
                 "disk/new peer material cannot close the already active original TLS"
             );
             returned(first).await;
-            let mut candidate = config;
-            candidate.runtime.diagnostic_max_operations = Some(7);
+            // A fresh apply of those same settings refreshes the CA File.
             handle
                 .apply_runtime_config_and_wait(candidate, Duration::from_secs(5))
                 .await
