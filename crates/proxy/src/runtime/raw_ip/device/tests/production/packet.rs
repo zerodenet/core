@@ -151,6 +151,13 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
             &input_owner,
             &proxy.inbound_owners.owner(&input.tag).unwrap()
         ));
+        let snapshot = proxy.engine().runtime_snapshot();
+        let plan = proxy
+            .protocols
+            .current_components(snapshot.config())
+            .unwrap();
+        let role = plan.configured("wg").unwrap().role_id();
+        assert!(plan.has_packet_provider(role));
         client.echo(b"same-original-after-replacement").await;
         previous = proxy
             .protocols

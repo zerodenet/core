@@ -581,6 +581,18 @@ impl OrchestrationState {
                         .await?,
                     );
                 }
+                #[cfg(feature = "raw-ip-runtime")]
+                {
+                    // Once the device link and listener StopOld are known,
+                    // project any still-live originals before fresh binds.
+                    let services = start_services.with_prepared_components()?;
+                    Self::bind_retained_packet_sources(
+                        proxy,
+                        start_config,
+                        &services,
+                        start_retained,
+                    )?;
+                }
                 Ok(())
             },
         )

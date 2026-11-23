@@ -177,7 +177,7 @@ impl OrchestrationState {
             )
             .await?;
         #[cfg(feature = "raw-ip-runtime")]
-        self.bind_retained_packet_sources(proxy, &config, &tcp_services)?;
+        Self::bind_retained_packet_sources(proxy, &config, &tcp_services, &self.active_inbounds)?;
         self.urltest_runtime = UrlTestRuntime::new(tcp_services.clone());
         self.inbound_runtime_factory = InboundListenerRuntimeFactory::new(
             SharedIngressRuntimeServices::new(tcp_services),

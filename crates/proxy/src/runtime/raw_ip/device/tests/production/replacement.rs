@@ -1,10 +1,10 @@
 //! Changed virtual client graphs keep the same actual listener pipe and wire.
 use super::*;
 use std::sync::Arc;
-fn linked(peer: SocketAddr, socks: u16) -> RuntimeConfig {
+fn linked(peer: SocketAddr) -> RuntimeConfig {
     RuntimeConfig::parse(&serde_json::json!({
         "inbounds":[
-            {"tag":"socks","listen":{"address":"127.0.0.1","port":socks},"protocol":{"type":"socks5"}},
+            {"tag":"socks","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}},
             {"tag":"wg-source","listen":{"address":"127.0.0.1","port":0},"protocol":{
                 "type":"wireguard","private_key":STANDARD.encode([121;32]),"addresses":["10.0.0.1/32"],
                 "peers":[{"public_key":peer::public(122),"allowed_ips":["0.0.0.0/0"]}]}}
@@ -30,10 +30,7 @@ async fn echo(port: u16) -> TcpStream {
 #[tokio::test]
 async fn config_and_network_rebuild_real_stacks_on_same_live_source_pipe_after_original_joins() {
     let (endpoint, peer_task) = peer::echo_peer().await;
-    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let socks = port.local_addr().unwrap().port();
-    drop(port);
-    let config = linked(endpoint, socks);
+    let config = linked(endpoint);
     let proxy = Proxy::new(config.clone()).unwrap();
     let handle = ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),
@@ -46,6 +43,9 @@ async fn config_and_network_rebuild_real_stacks_on_same_live_source_pipe_after_o
         .unwrap();
     let source = proxy.inbound_owners.owner("wg-source").unwrap();
     source.wait_ready().await.unwrap();
+    let socks_source = proxy.inbound_owners.owner("socks").unwrap();
+    socks_source.wait_ready().await.unwrap();
+    let socks = socks_source.original_listener_address.get().unwrap().port();
     let first = proxy
         .protocols
         .test_packet_source_origins(proxy.engine().config().as_ref())
@@ -107,6 +107,13 @@ async fn config_and_network_rebuild_real_stacks_on_same_live_source_pipe_after_o
             &source,
             &proxy.inbound_owners.owner("wg-source").unwrap()
         ));
+        let snapshot = proxy.engine().runtime_snapshot();
+        let plan = proxy
+            .protocols
+            .current_components(snapshot.config())
+            .unwrap();
+        let role = plan.configured("wg").unwrap().role_id();
+        assert!(plan.has_device_carrier_provider(role));
         let mut next = echo(socks).await;
         let current = proxy
             .protocols

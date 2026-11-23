@@ -185,6 +185,7 @@ impl OrchestrationState {
                 let state = &mut *self;
                 let recovery_config = &previous_config;
                 let result = async move {
+                    let services = services.with_prepared_components()?;
                     proxy
                         .protocols
                         .start_device_resources(
@@ -194,7 +195,12 @@ impl OrchestrationState {
                             state.preparing_inbounds.cancellation(),
                         )
                         .await?;
-                    state.bind_retained_packet_sources(proxy, recovery_config, &services)?;
+                    Self::bind_retained_packet_sources(
+                        proxy,
+                        recovery_config,
+                        &services,
+                        &state.active_inbounds,
+                    )?;
                     proxy
                         .protocols
                         .prepare_devices(

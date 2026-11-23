@@ -10,10 +10,10 @@ use crate::runtime::Proxy;
 
 impl OrchestrationState {
     pub(super) fn bind_retained_packet_sources(
-        &self,
         proxy: &Proxy,
         config: &std::sync::Arc<zero_config::RuntimeConfig>,
         services: &crate::protocol_registry::TcpRuntimeServices,
+        active_inbounds: &std::collections::HashMap<String, zero_config::InboundConfig>,
     ) -> Result<(), zero_engine::EngineError> {
         #[cfg(feature = "datagram-route-runtime")]
         {
@@ -22,7 +22,7 @@ impl OrchestrationState {
                 std::io::Error::other(crate::component::instance::retained(error.clone()))
             })?;
             for input in &config.inbounds {
-                if self.active_inbounds.get(&input.tag) != Some(input) {
+                if active_inbounds.get(&input.tag) != Some(input) {
                     continue;
                 }
                 if let Some(original) = proxy.inbound_owners.packet_source_origin(input)? {
@@ -44,7 +44,7 @@ impl OrchestrationState {
             }
         }
         #[cfg(not(feature = "datagram-route-runtime"))]
-        let _ = (proxy, config, services);
+        let _ = (proxy, config, services, active_inbounds);
         Ok(())
     }
 
@@ -323,7 +323,11 @@ impl OrchestrationState {
             .protocols
             .start_components(config.clone(), Instant::now() + Duration::from_secs(5))
             .await?;
-        let services = proxy.tcp_runtime_services_for_snapshot(snapshot.clone());
+        // Network replacement keeps the configuration Arc, so ordinary
+        // execution still selects the published plan until commit.
+        let services = proxy
+            .tcp_runtime_services_for_snapshot(snapshot.clone())
+            .with_prepared_components()?;
         proxy
             .protocols
             .start_device_resources(
@@ -333,7 +337,7 @@ impl OrchestrationState {
                 self.preparing_inbounds.cancellation(),
             )
             .await?;
-        self.bind_retained_packet_sources(proxy, config, &services)?;
+        Self::bind_retained_packet_sources(proxy, config, &services, &self.active_inbounds)?;
         proxy
             .protocols
             .prepare_devices(config, services, self.preparing_inbounds.cancellation())
