@@ -24,7 +24,8 @@ fn deadline() -> Instant {
 
 #[tokio::test]
 async fn real_listener_grants_enforce_start_phase_protocol_endpoint_and_lifetime_budget() {
-    let address = endpoint("127.0.0.1:0".parse().unwrap());
+    let declared: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let address = endpoint(declared);
     let cancel = CancellationToken::new();
     let grants = HostResources::new(
         ComponentId(101),
@@ -138,8 +139,18 @@ async fn real_listener_grants_enforce_start_phase_protocol_endpoint_and_lifetime
     let report = grants.shutdown_io(deadline()).await.unwrap();
     assert!(report.is_complete());
     assert_eq!(report.closed_io.len(), 2);
-    std::net::TcpListener::bind(actual).unwrap();
-    std::net::UdpSocket::bind(udp_address).unwrap();
+    let evidence = grants.io_evidence();
+    assert!(evidence.admission_closed);
+    assert_eq!(evidence.native.len(), 2);
+    for tcp in [true, false] {
+        let original = evidence
+            .native
+            .iter()
+            .find(|original| original.tcp == tcp && original.address == declared)
+            .expect("same declared listener controller");
+        assert!(original.confirmed && !original.known_no_acquisition);
+        assert!(original.first_fault.is_none());
+    }
     assert!(grants
         .shutdown_io(deadline())
         .await
