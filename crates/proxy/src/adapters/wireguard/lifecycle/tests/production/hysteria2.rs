@@ -67,8 +67,7 @@ async fn linked_and_standalone_hy2_outer_use_same_pool_then_close_originals_befo
     let endpoint = *remote_owner.original_listener_address.get().unwrap();
     for (linked, hopping) in [(false, false), (true, false), (false, true), (true, true)] {
         let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let mut candidate =
-            serde_json::to_value(config(peer.local_addr().unwrap(), None, linked)).unwrap();
+        let mut candidate = active_outer_config(peer.local_addr().unwrap(), linked);
         candidate["outbounds"].as_array_mut().unwrap().push(serde_json::json!({"tag":"hy","protocol":{
             "type":"hysteria2","server":"127.0.0.1","port":endpoint.port(),"server_name":"localhost",
             "password":"actual-secret","insecure":true
@@ -148,7 +147,25 @@ async fn linked_and_standalone_hy2_outer_use_same_pool_then_close_originals_befo
             .await
             .unwrap();
         joined(&old, &old_workers);
-        assert!(old_source.closed().unwrap().matches(&old_source));
+        assert!(old_source.is_retired());
+        assert!(!old_source.same_original(&originals(&proxy)[0]));
+        if let Some(logical) = old_source.logical_packet() {
+            for driver in logical.drivers() {
+                let exit = driver
+                    .try_joined()
+                    .expect("original software Source driver joined");
+                assert!(driver.matches_joined(&exit) && exit.registration_released());
+                exit.result().unwrap();
+            }
+            if linked {
+                let native = old_source
+                    .packet_source_admission()
+                    .expect("linked Source retained its original UDP listener");
+                assert!(native.closed().unwrap().matches(native.owner()));
+            }
+        } else {
+            assert!(linked && old_source.closed().unwrap().matches(&old_source));
+        }
         let closed = original
             .closed()
             .expect("actual old HY2 raw native original before replacement ACK");

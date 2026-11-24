@@ -284,7 +284,7 @@ pub(super) async fn pause_sources<'a>(
         let pause = Arc::new(
             proxy
                 .protocols
-                .try_pause_replacement_users(candidate)
+                .try_pause_replacement_users(candidate, &[])
                 .map_err(std::io::Error::other)?,
         );
         *retirement = proxy
@@ -327,7 +327,7 @@ pub(super) async fn pause_sources<'a>(
         #[cfg(feature = "raw-ip-runtime")]
         if original.has_packet_source_pause() {
             if let Some(main) = original.pause_packet_main_if_idle(deadline).await? {
-                mains.push((original, main));
+                mains.push((original, main, changed_sources.contains(&input.tag)));
             }
             continue;
         }
@@ -357,7 +357,7 @@ pub(super) async fn pause_sources<'a>(
             .owner(crate::runtime::inbound_owners::system_tun::SYSTEM_TUN_OWNER)
         {
             if let Some(main) = original.pause_packet_main_if_idle(deadline).await? {
-                mains.push((original, main));
+                mains.push((original, main, false));
             }
         }
     }
@@ -365,12 +365,19 @@ pub(super) async fn pause_sources<'a>(
     // cache. Doing this after the catalog Users check would self-deadlock:
     // its exact BoxPacketSession still owns a charged Packet Lease until here.
     // No component/cached carrier receiver has been revoked in this phase.
+    #[cfg(feature = "raw-ip-runtime")]
+    let stopping_mains = mains
+        .iter()
+        .filter_map(|(_, main, stopping)| stopping.then_some(main))
+        .collect::<Vec<_>>();
+    #[cfg(not(feature = "raw-ip-runtime"))]
+    let stopping_mains = [];
     let user_pause = match early_pause {
         Some(pause) => pause,
         None => Arc::new(
             proxy
                 .protocols
-                .try_pause_replacement_users(candidate)
+                .try_pause_replacement_users(candidate, &stopping_mains)
                 .inspect_err(|source| {
                     #[cfg(test)]
                     eprintln!(
@@ -414,7 +421,7 @@ pub(super) async fn pause_sources<'a>(
         let affected = packet_changed
             || carrier_changed
             || ring_changed && user_pause.stops_instance(origin.instance())
-            || mains.iter().any(|(_, main)| {
+            || mains.iter().any(|(_, main, _)| {
                 main.instance() == origin.instance()
                     && origin
                         .driver()
@@ -438,7 +445,7 @@ pub(super) async fn pause_sources<'a>(
             .map_err(std::io::Error::other)?;
     }
     #[cfg(feature = "raw-ip-runtime")]
-    for (original, main) in mains {
+    for (original, main, _) in mains {
         pauses.push(original.finish_packet_pause(main).await?);
     }
     #[cfg(feature = "raw-ip-runtime")]

@@ -130,7 +130,11 @@ impl NativeWireInput {
                         std::io::Error::other("logical input names another actual wire").into(),
                     );
                 }
-                self.carrier.install(path)?;
+                self.carrier.install(path.clone())?;
+                // The physical donor returns pre-delivery custody to this
+                // exact wire task. The configuration task can only hand off
+                // the controller and wait for actual wire readiness.
+                path.initialize().await?;
             }
         }
         Ok(Some((reads, grant.checkpoint)))

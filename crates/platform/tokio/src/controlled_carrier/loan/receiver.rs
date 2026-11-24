@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, Weak};
 pub(super) struct Observation {
     installed: Mutex<Option<Installed>>,
     packet_driver: std::sync::OnceLock<crate::contract::component::PacketDriverStreamRetained>,
+    packet_datagram: std::sync::OnceLock<crate::contract::component::PacketDriverDatagramRetained>,
 }
 #[derive(Clone)]
 struct Installed {
@@ -17,6 +18,18 @@ struct Installed {
 #[derive(Clone)]
 pub struct CarrierLoanReceiver(Weak<Observation>);
 impl LoanOwner {
+    pub(crate) fn observe_packet_datagram(
+        &mut self,
+        actual: crate::contract::component::PacketDriverDatagramRetained,
+    ) {
+        if let Some(observation) = self.receiver.get() {
+            observation
+                .packet_datagram
+                .set(actual)
+                .unwrap_or_else(|_| unreachable!("unique original Datagram retainer"));
+        }
+    }
+
     fn receiver_observation(&mut self) -> CarrierLoanReceiver {
         CarrierLoanReceiver(Arc::downgrade(
             self.receiver
@@ -71,6 +84,12 @@ pub(super) fn install_owner(
     owner
 }
 impl CarrierLoanReceiver {
+    pub fn packet_datagram_retained(
+        &self,
+    ) -> Option<crate::contract::component::PacketDriverDatagramRetained> {
+        self.0.upgrade()?.packet_datagram.get().cloned()
+    }
+
     /// Return the existing sealed proof only while the exact actual receiver
     /// still strongly stores this same LoanOwner. No IDs supplied by a caller.
     pub fn retained(&self) -> Option<CarrierLoanRetained> {

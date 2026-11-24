@@ -93,24 +93,38 @@ impl SharedRawIpDevice {
     }
 
     pub(crate) async fn wait_ready(&self) -> Result<(), EngineError> {
+        tokio::time::timeout(Duration::from_secs(5), self.wait_ready_result())
+            .await
+            .map_err(|_| {
+                EngineError::Io(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "raw-IP device readiness timed out",
+                ))
+            })?
+    }
+
+    pub(crate) async fn wait_logical_wire_ready(
+        &self,
+        carrier: &super::RegisteredProxiedRawIpWireCarrier,
+    ) -> Result<(), EngineError> {
+        // The wire readiness deadline starts after the real carrier setup.
+        // A failure or early wire exit is still visible during that setup.
+        tokio::select! {
+            result = self.wait_ready_result() => result,
+            () = carrier.wait_initialized() => self.wait_ready().await,
+        }
+    }
+
+    async fn wait_ready_result(&self) -> Result<(), EngineError> {
         let mut ready = self.ready.clone();
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                if let Some(result) = ready.borrow_and_update().clone() {
-                    return result.map_err(|error| EngineError::Io(std::io::Error::other(error)));
-                }
-                ready.changed().await.map_err(|_| {
-                    EngineError::Io(std::io::Error::other("raw-IP device stopped before ready"))
-                })?;
+        loop {
+            if let Some(result) = ready.borrow_and_update().clone() {
+                return result.map_err(|error| EngineError::Io(std::io::Error::other(error)));
             }
-        })
-        .await
-        .map_err(|_| {
-            EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "raw-IP device readiness timed out",
-            ))
-        })?
+            ready.changed().await.map_err(|_| {
+                EngineError::Io(std::io::Error::other("raw-IP device stopped before ready"))
+            })?;
+        }
     }
 
     pub(crate) fn close_now(&self) {

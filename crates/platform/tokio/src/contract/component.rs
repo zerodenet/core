@@ -5,8 +5,8 @@ pub use zero_tun::packet_memory::{
 pub(crate) mod packet_driver;
 pub use packet_driver::{
     GrantedPacketServiceCaller, PacketDriverCallGrant, PacketDriverCallRetained, PacketDriverCalls,
-    PacketDriverDatagramHandoff, PacketDriverSendBuffers, PacketDriverSendCopy,
-    PacketDriverStreamGrant, PacketDriverStreamRetained, PacketDriverTarget,
+    PacketDriverDatagramHandoff, PacketDriverDatagramRetained, PacketDriverSendBuffers,
+    PacketDriverSendCopy, PacketDriverStreamGrant, PacketDriverStreamRetained, PacketDriverTarget,
 };
 mod packet_supplemental;
 pub use packet_supplemental::PacketSupplementalMemory;

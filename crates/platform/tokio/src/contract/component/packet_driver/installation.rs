@@ -16,7 +16,8 @@ impl PacketDriverCallGrant {
             .unwrap()
             .take()
             .ok_or_else(|| failure(Reason::InvalidConfig))?;
-        let (tx, rx, limits, owner) = loan.into_packet_driver_parts();
+        let (tx, rx, limits, mut owner) = loan.into_packet_driver_parts();
+        owner.observe_packet_datagram(PacketDriverDatagramRetained(RecordWeak::new(&self.record)));
         let origin = owner.original().clone();
         let value = Installed {
             control: AsyncMutex::new(owner),

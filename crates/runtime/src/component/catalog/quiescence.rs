@@ -223,6 +223,8 @@ impl ComponentCatalog {
                     receiver::retained(&old, slot, &stopping, lease)
                         .map(crate::component::instance::users::RetainedReceiver::Carrier)
                         .or_else(||receiver::retained_packet_driver(&old,slot,&stopping,lease,mains).map(crate::component::instance::users::RetainedReceiver::PacketDriver))
+                        .or_else(|| receiver::retained_metadata_datagram(&old, slot, lease, mains)
+                            .then_some(crate::component::instance::users::RetainedReceiver::StoppingPacketSource))
                 }).map_err(|mut source| {
                     source.component.get_or_insert(slot.id);
                     source

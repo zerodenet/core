@@ -129,6 +129,30 @@ pub struct PacketDriverDatagramHandoff {
     record: RecordRef,
     installed: InstalledRef,
 }
+/// Weak observation of the actual final Datagram controller's Source record.
+/// It cannot stop the Source, return its views or certify native close.
+#[derive(Clone)]
+pub struct PacketDriverDatagramRetained(RecordWeak);
+impl PacketDriverDatagramRetained {
+    pub fn confirmed_receiver(&self) -> Option<(CarrierOrigin, TaskJoinWitness, CarrierOrigin)> {
+        let record = self.0.upgrade()?;
+        let installed = record.installed.get()?;
+        let receiver = installed.receiver.get()?;
+        if record.retiring.load(std::sync::atomic::Ordering::Acquire)
+            || installed
+                .complete
+                .load(std::sync::atomic::Ordering::Acquire)
+            || receiver.is_joined()
+        {
+            return None;
+        }
+        Some((
+            record.original.clone(),
+            receiver.clone(),
+            installed.origin.clone(),
+        ))
+    }
+}
 impl PacketDriverCallGrant {
     /// Bind the actual selected Node/prefix opener while its ordinary build
     /// invocation strongly owns it. This record keeps only its weak view.

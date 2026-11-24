@@ -44,6 +44,14 @@ impl ComponentPlan {
             let mut originals = Vec::new();
             let mut packet_originals: Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> =
                 Vec::new();
+            let metadata_memory = slot
+                .bound_original_budgets()
+                .ok_or_else(|| invalid(Reason::Revoked, "Packet target original Host retired"))?
+                .packet
+                .driver_metadata_view();
+            let mut metadata =
+                zero_platform_tokio::contract::component::PacketMetadataVec::default();
+            let mut metadata_limit = 0usize;
             let mut graph = vec![instance];
             let mut visited = std::collections::BTreeSet::new();
             while let Some(id) = graph.pop() {
@@ -68,7 +76,24 @@ impl ComponentPlan {
                         packet_originals.push(original);
                     }
                 }
+                // Like the standalone Source, the accepted Source can receive a
+                // metadata original from the role's actual roleless owner.
+                metadata_limit = metadata_limit
+                    .checked_add(provider.recipe.spec().resources.len())
+                    .ok_or_else(|| {
+                        invalid(Reason::Capacity, "Packet target metadata capacity overflow")
+                    })?;
                 for ordinal in 0..provider.recipe.spec().resources.len() {
+                    if let Some(owner) = provider.original_metadata_owner(ordinal) {
+                        if !metadata.iter().any(|actual: &zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolRegistration| actual.same_owner(&owner)) {
+                            metadata
+                                .try_push_with_metadata(owner, &metadata_memory, metadata_limit)
+                                .map_err(|(source, _)| {
+                                    invalid(Reason::Capacity, "Packet target metadata capacity")
+                                        .with_source(source)
+                                })?;
+                        }
+                    }
                     if let Some(owner) = provider.original_carrier_owner(ordinal) {
                         if !originals.iter().any(|actual: &zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration| actual.same_owner(&owner)) { originals.push(owner); }
                     }
@@ -81,27 +106,6 @@ impl ComponentPlan {
                 .ok_or_else(|| {
                     invalid(Reason::Capacity, "Packet driver pending capacity overflow")
                 })?;
-            let metadata_memory = slot
-                .bound_original_budgets()
-                .ok_or_else(|| invalid(Reason::Revoked, "Packet target original Host retired"))?
-                .packet
-                .driver_metadata_view();
-            let mut metadata =
-                zero_platform_tokio::contract::component::PacketMetadataVec::default();
-            for ordinal in 0..slot.recipe.spec().resources.len() {
-                if let Some(actual) = slot.original_metadata_owner(ordinal) {
-                    metadata
-                        .try_push_with_metadata(
-                            actual,
-                            &metadata_memory,
-                            slot.recipe.spec().resources.len(),
-                        )
-                        .map_err(|(source, _)| {
-                            invalid(Reason::Capacity, "Packet target metadata capacity")
-                                .with_source(source)
-                        })?;
-                }
-            }
             targets.push(PacketDriverTarget {
                 instance,
                 role: slot.role_id(),

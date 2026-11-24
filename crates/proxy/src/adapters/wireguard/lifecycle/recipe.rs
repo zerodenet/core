@@ -201,7 +201,12 @@ impl LinkedEndpointRecipe {
             .unwrap()
             .get(&inbound.tag)
             .filter(|link| {
-                link.listen == inbound.listen && Arc::ptr_eq(&link.live, &pending.live())
+                // An outer-backed Source names this graph generation in its
+                // dependencies. Its replacement must start with its own peer
+                // view, while the old view remains available for rollback.
+                (settings.outer.is_none() || reuse.is_some())
+                    && link.listen == inbound.listen
+                    && Arc::ptr_eq(&link.live, &pending.live())
             })
             .map(|link| inbound::EndpointIoRecipe::retained(link))
             .unwrap_or_else(inbound::EndpointIoRecipe::new);

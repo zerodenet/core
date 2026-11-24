@@ -58,6 +58,11 @@ impl RegisteredProxiedRawIpWireCarrier {
         self.state.wire.same_registration(driver)
     }
 
+    pub(crate) async fn wait_initialized(&self) {
+        let mut path = self.state.path.subscribe();
+        let _ = path.wait_for(Option::is_some).await;
+    }
+
     /// Install this owner in the actual Source before calling initialize.
     /// Preparation acquires no carrier and starts no background operation.
     pub(crate) fn prepare(

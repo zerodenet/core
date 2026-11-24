@@ -28,6 +28,7 @@ pub(in crate::component) struct PausedUsers {
 pub(in crate::component) enum RetainedReceiver {
     Carrier(zero_platform_tokio::controlled_carrier::CarrierAdoption),
     PacketDriver(zero_platform_tokio::contract::component::PacketDriverStreamRetained),
+    StoppingPacketSource,
 }
 impl PausedUsers {
     pub(in crate::component) fn packet_receivers(

@@ -38,13 +38,14 @@ impl super::ProtocolInventory {
     pub(crate) fn try_pause_replacement_users(
         &self,
         candidate: &Arc<ComponentPlan>,
+        mains: &[&zero_platform_tokio::contract::packet::PacketSourceMainPaused],
     ) -> Result<
         crate::component::catalog::ReplacementUsersPause,
         zero_platform_tokio::contract::ChannelError,
     > {
         self.host
             .components()
-            .try_pause_replacement_users(candidate)
+            .try_pause_replacement_users_with_packet_sources(candidate, mains)
     }
     /// Inline across the whole runtime and passive nested operations. This
     /// elects a join consumer; it never spawns another owner/task registry.

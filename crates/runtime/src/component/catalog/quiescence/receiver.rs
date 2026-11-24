@@ -5,6 +5,49 @@ use crate::component::{
     instance::{users::Lease, ComponentSlot},
 };
 use zero_platform_tokio::controlled_carrier::CarrierAdoption;
+
+/// A stopping inbound Source owns the actual logical Datagram views until
+/// its listener stop phase. Its paused Main neither returns them nor closes
+/// the shared native pool. Both receipts remain required in StopOld.
+pub(super) fn retained_metadata_datagram(
+    old: &ComponentPlan,
+    donor: &ComponentSlot,
+    lease: &Lease,
+    mains: &[&zero_platform_tokio::contract::packet::PacketSourceMainPaused],
+) -> bool {
+    use zero_platform_tokio::controlled_carrier::CarrierOriginOwner;
+    let Some((source, receiver, original)) = lease
+        .packet_datagram_receiver()
+        .and_then(|loan| loan.confirmed_receiver())
+    else {
+        return false;
+    };
+    let Some(wire) = source.driver() else {
+        return false;
+    };
+    if source.is_retired()
+        || original.is_retired()
+        || !receiver.same_registration(wire)
+        || !mains.iter().any(|main| {
+            main.instance() == source.instance() && main.scope().same_scope(&wire.scope_identity())
+        })
+    {
+        return false;
+    }
+    let CarrierOriginOwner::Metadata(owner) = original.owner() else {
+        return false;
+    };
+    let Some(provider) = old.component(original.instance().component) else {
+        return false;
+    };
+    original.instance() == provider.instance_id()
+        && depends(old, donor.instance_id(), provider.instance_id())
+        && (0..provider.recipe.spec().resources.len()).any(|ordinal| {
+            provider
+                .original_metadata_owner(ordinal)
+                .is_some_and(|actual| actual.same_owner(owner))
+        })
+}
 pub(super) fn retained(
     old: &ComponentPlan,
     donor: &ComponentSlot,

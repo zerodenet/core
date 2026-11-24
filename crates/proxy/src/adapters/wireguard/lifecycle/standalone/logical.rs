@@ -2,6 +2,7 @@
 //! Original outer native debt stays with its real callee, independently.
 use super::*;
 use crate::component::background::packet_driver::PacketCodecReceiveGroups;
+use crate::runtime::raw_ip::{RawIpWireCarrier, RegisteredProxiedRawIpWireCarrier};
 use zero_platform_tokio::contract::{
     component::GrantedLogicalPacketWorkspaces, network::CarrierContext, scope::TaskJoinWitness,
 };
@@ -16,7 +17,7 @@ pub(super) struct Original {
         )>,
     >,
     codecs: PacketCodecReceiveGroups,
-    carrier: OnceLock<Arc<dyn crate::runtime::raw_ip::RawIpWireCarrier>>,
+    carrier: OnceLock<Arc<RegisteredProxiedRawIpWireCarrier>>,
 }
 impl StandaloneStackOptions {
     #[expect(
@@ -197,24 +198,20 @@ impl StandaloneStackOptions {
                             .map_err(std::io::Error::other)?
                             .with_prepaid_receive(original.codecs.clone())
                             .map_err(std::io::Error::other)?;
-                        let carrier: Arc<dyn crate::runtime::raw_ip::RawIpWireCarrier> = Arc::new(
-                            crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier::prepare(
-                                path.recipe.clone(),
-                                execution,
-                                tasks.clone(),
-                                original.endpoint,
-                            )?,
-                        );
+                        let carrier = Arc::new(RegisteredProxiedRawIpWireCarrier::prepare(
+                            path.recipe.clone(),
+                            execution,
+                            tasks.clone(),
+                            original.endpoint,
+                        )?);
                         original.carrier.set(carrier.clone()).map_err(|_| {
                             invalid("same standalone outer controller was already installed")
                         })?;
                         carrier
                     }
                 };
-                carrier.initialize().await?;
-                // The original input is consumed synchronously AFTER the same
-                // attempt's actual Path/controller is retained. Cancellation of
-                // the build never drops this input or replaces its driver.
+                // Transfer the retained controller to the original wire
+                // before it acquires any protocol original on its own Scope.
                 let (input, checkpoint) = original
                     .input
                     .lock()
@@ -234,9 +231,13 @@ impl StandaloneStackOptions {
                     checkpoint,
                 )?;
             }
+            let carrier = original
+                .carrier
+                .get()
+                .ok_or_else(|| invalid("same standalone outer controller was not installed"))?;
             self.device(index)
                 .map_err(std::io::Error::other)?
-                .wait_ready()
+                .wait_logical_wire_ready(carrier)
                 .await?;
         }
         Ok(())

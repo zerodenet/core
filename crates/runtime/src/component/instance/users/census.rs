@@ -40,6 +40,7 @@ impl Users {
             match receiver(lease).ok_or_else(busy)? {
                 RetainedReceiver::Carrier(actual) => receivers.push(actual),
                 RetainedReceiver::PacketDriver(actual) => packet_receivers.push(actual),
+                RetainedReceiver::StoppingPacketSource => {}
             }
         }
         let mut admission = self
@@ -69,6 +70,15 @@ impl Users {
     }
 }
 impl Lease {
+    pub(in crate::component) fn packet_datagram_receiver(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::component::PacketDriverDatagramRetained> {
+        if self.session.is_some() {
+            return None;
+        }
+        self.receiver.get()?.packet_datagram_retained()
+    }
+
     pub(in crate::component) fn bind_receiver(
         &self,
         receiver: zero_platform_tokio::controlled_carrier::loan::CarrierLoanReceiver,
