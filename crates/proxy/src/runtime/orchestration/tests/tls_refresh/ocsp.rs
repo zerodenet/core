@@ -12,6 +12,10 @@ fn material(url: &str) -> (rcgen::Certificate, rcgen::KeyPair, rcgen::Certificat
     let ca = issuer.self_signed(&issuer_key).unwrap();
     let key = rcgen::KeyPair::generate().unwrap();
     let mut leaf = rcgen::CertificateParams::new(vec!["ocsp.test".into()]).unwrap();
+    // OpenSSL 4 excludes self-issued certificates from OCSP stapling.
+    leaf.distinguished_name = rcgen::DistinguishedName::new();
+    leaf.distinguished_name
+        .push(rcgen::DnType::CommonName, "ocsp.test");
     let mut access = Vec::new();
     for (kind, url) in [(1, format!("{url}/status")), (2, format!("{url}/issuer"))] {
         let mut description = vec![6, 8, 0x2b, 6, 1, 5, 5, 7, 0x30, kind];
