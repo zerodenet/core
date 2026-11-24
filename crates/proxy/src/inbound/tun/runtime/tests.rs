@@ -479,7 +479,12 @@ async fn tun_tcp_block_route_never_opens_the_destination() {
     complete_handshake(&tcp, &mut outbound, destination).await;
     wait_for_stat(|| proxy.engine().stats_snapshot().blocked_sessions == 1).await;
     let closed = receive_tcp(&mut outbound).await;
-    assert!(closed.fin && closed.ack_flag, "blocked TUN TCP must close");
+    assert!(closed.rst && closed.ack_flag && !closed.fin);
+    assert_eq!(
+        closed.ack,
+        CLIENT_ISN + 1,
+        "the reset names this connection"
+    );
     assert!(
         tokio::time::timeout(Duration::from_millis(200), listener.accept())
             .await
@@ -552,6 +557,7 @@ async fn receive_tcp(outbound: &mut mpsc::Receiver<Vec<u8>>) -> OwnedTcp {
         syn: parsed.syn,
         ack_flag: parsed.ack_flag,
         fin: parsed.fin,
+        rst: parsed.rst,
         payload: parsed.payload.to_vec(),
     }
 }
@@ -591,5 +597,6 @@ struct OwnedTcp {
     syn: bool,
     ack_flag: bool,
     fin: bool,
+    rst: bool,
     payload: Vec<u8>,
 }

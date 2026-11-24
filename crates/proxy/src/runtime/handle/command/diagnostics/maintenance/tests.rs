@@ -2,7 +2,7 @@
 use super::*;
 use crate::runtime::{tcp_ingress::TcpIngressRuntime, Proxy};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncReadExt,
     net::TcpListener,
     time::{timeout, Duration, Instant},
 };
@@ -61,6 +61,13 @@ async fn cancelled_cold_diagnostic_keeps_actual_service_owner_and_never_publishe
     assert!(proxy.protocols.current_components(&config).is_none());
     let plan = proxy.protocols.prepare_components(config.clone()).unwrap();
     let direct = plan.direct(Some("direct")).unwrap();
+    let owner = plan
+        .original_carrier_owner(direct.instance_id(), 0)
+        .unwrap();
+    let active = owner.observe().unwrap();
+    assert_eq!(active.retained(), 1);
+    let original = active.slots()[0].original().clone();
+    assert!(original.closed().is_none());
     // This real kernel-admitted Business request must not borrow temporary
     // Service permission just because the role has genuinely started.
     let ingress =
@@ -84,8 +91,6 @@ async fn cancelled_cold_diagnostic_keeps_actual_service_owner_and_never_publishe
         .engine()
         .track_session(session.id)
         .finish(zero_engine::SessionOutcome::Cancelled);
-    waiting.abort();
-    assert!(waiting.await.unwrap_err().is_cancelled());
     let mut joining = Box::pin(proxy.host.apply().wait_idle());
     assert!(futures_util::poll!(joining.as_mut()).is_pending());
     let mut eof = [0; 1];
@@ -94,16 +99,23 @@ async fn cancelled_cold_diagnostic_keeps_actual_service_owner_and_never_publishe
         tokio::pin!(read);
         assert!(
             futures_util::poll!(read.as_mut()).is_pending(),
-            "caller cancellation cannot discard the actual Service stream"
+            "the actual Service stream remains in use with its HTTP response withheld"
         );
     }
-    peer.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
-        .await
-        .unwrap();
-    timeout(Duration::from_secs(2), joining)
-        .await
-        .unwrap()
-        .unwrap();
+    waiting.abort();
+    assert!(waiting.await.unwrap_err().is_cancelled());
+    let (joined, read) = timeout(Duration::from_secs(2), async {
+        tokio::join!(joining, peer.read(&mut eof))
+    })
+    .await
+    .unwrap();
+    joined.unwrap();
+    assert_eq!(read.unwrap(), 0);
+    let closed = original
+        .closed()
+        .expect("actual Service probe socket closed");
+    assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
+    assert!(owner.closed().unwrap().matches(&owner));
     assert!(proxy.protocols.current_components(&config).is_none());
     assert!(
         direct
