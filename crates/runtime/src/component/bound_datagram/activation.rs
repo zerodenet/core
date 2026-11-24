@@ -73,19 +73,20 @@ impl HostBoundDatagramResources {
         state.phase = Phase::Live;
         Ok(())
     }
+    pub(super) fn driver_witness(&self) -> Option<TaskJoinWitness> {
+        self.driver
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
     pub(super) fn state(&self) -> StateGuard<'_> {
         // Only scoped wire roots declare an internal driver. Existing peer
         // sockets are polled inline: their peer main is an external shared
         // caller, joined independently by the original JoinedPeer wrapper.
-        let driver = self
-            .driver
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        let joined = self
-            .scope
-            .as_ref()
-            .map(|_| driver.as_ref().is_some_and(TaskJoinWitness::is_joined));
+        let joined = self.scope.as_ref().map(|_| {
+            self.driver_witness()
+                .is_some_and(|driver| driver.is_joined())
+        });
         let mut state = self
             .state
             .lock()

@@ -66,6 +66,12 @@ impl HostBoundDatagramResources {
             .map_err(|source| {
                 error(instance, Reason::StalePlan, "peer original root differs").with_source(source)
             })?;
+        // Register each acquired native entry against the same caller as its
+        // Host charge. The peer owner still joins this shared caller itself.
+        *provider
+            .driver
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(peer.clone());
         Ok(provider)
     }
 }

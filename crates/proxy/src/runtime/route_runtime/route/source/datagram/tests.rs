@@ -33,9 +33,15 @@ fn input<'a>(peer: std::net::SocketAddr, payload: &'a [u8]) -> UdpPipeInput<'a> 
 async fn installed_datagram_dispatch_shares_the_original_bound_provider_across_targets_and_retires_actual_views(
 ) {
     timeout(Duration::from_secs(15), async {
-        let live = LiveDirectSource::new().await;
-        let returns = Arc::new(crate::component::datagram_retirement::DatagramReturns::default());
         let state = Arc::new(AsyncMutex::new(owner::State::default()));
+        let peer_state = state.clone();
+        let live = LiveDirectSource::with_peer_finish(async move {
+            // Match the accepted peer's production exit: return the response
+            // lease on the actual caller before the Scope can consume its exit.
+            peer_state.lock().await.finish_dispatch();
+        })
+        .await;
+        let returns = Arc::new(crate::component::datagram_retirement::DatagramReturns::default());
         let stop = live.context.binding().cancellation();
         let runtime = live
             .runtime
@@ -148,6 +154,10 @@ async fn installed_datagram_dispatch_shares_the_original_bound_provider_across_t
         retained.push(response);
         let originals = dispatch.direct_original_views_for_test();
         assert_eq!(originals.len(), 1);
+        let (native, view) = &originals[0];
+        assert!(!previous.unwrap().same_original(native));
+        assert!(native.driver().same_registration(&caller));
+        assert!(native.closed().is_none() && !view.is_returned());
         assert!(totals.snapshot().charged > 0);
         drop(original);
         // This invokes host request_stop/full observer, consumes this same

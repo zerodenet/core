@@ -140,22 +140,10 @@ impl ResourceAccess for HostBoundDatagramResources {
             .and_then(|original| original.control.clone())
             .expect("actual successful original retains its same controller");
         drop(state);
-        if let Some(scope) = &self.scope {
-            let driver = self
-                .driver
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clone();
+        if let Some(driver) = self.driver_witness() {
             let registered = control
-                .register_provider(self.instance, scope.clone())
-                .and_then(|_| {
-                    let driver = driver.as_ref().ok_or_else(|| {
-                        std::io::Error::other("actual UDP driver is not installed")
-                    })?;
-                    control
-                        .register_driver(&control.identity(), driver)
-                        .map(|_| ())
-                });
+                .register_provider(self.instance, driver.scope_identity())
+                .and_then(|_| control.register_driver(&control.identity(), &driver));
             if let Err(source) = registered {
                 let closed = control.close();
                 let mut state = self.state();

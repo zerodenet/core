@@ -27,6 +27,12 @@ pub(crate) struct Live {
 }
 impl Live {
     pub(crate) async fn new() -> Self {
+        Self::with_peer_finish(async {}).await
+    }
+
+    pub(crate) async fn with_peer_finish(
+        finish: impl std::future::Future<Output = ()> + Send + 'static,
+    ) -> Self {
         let proxy = Proxy::new(config("auto")).unwrap();
         proxy
             .protocols
@@ -69,7 +75,7 @@ impl Live {
                 binding_tx.send(binding.clone()).unwrap();
                 async move {
                     let cancel = binding.cancellation();
-                    crate::runtime::udp_socket::endpoint::peer::job::run_peer_with_driver(async move {
+                    let result = crate::runtime::udp_socket::endpoint::peer::job::run_peer_with_driver(async move {
                     let read = read.read_u8(); tokio::pin!(read);
                     tokio::select! {
                         _=cancel.cancelled()=>Ok(()),
@@ -78,7 +84,9 @@ impl Live {
                             if result.is_pending(){pending.notify_one();} result
                         })=>Err(std::io::Error::other(format!("fixture actual read unexpectedly completed: {result:?}")).into()),
                     }
-                    }, driver_job).await
+                    }, driver_job).await;
+                    finish.await;
+                    result
                 }
             })?);
             let _=stopping.wait_for(|stop|*stop).await;
