@@ -422,10 +422,10 @@ impl Proxy {
     ) -> Result<TcpRuntimeServices, zero_engine::EngineError> {
         let snapshot = self
             .pending_configuration_snapshot()
-            .filter(|snapshot| Arc::ptr_eq(snapshot.config(), config))
+            .filter(|snapshot| Arc::ptr_eq(snapshot.resource_config(), config))
             .or_else(|| {
                 let current = self.engine.runtime_snapshot();
-                Arc::ptr_eq(current.config(), config).then_some(current)
+                Arc::ptr_eq(current.resource_config(), config).then_some(current)
             })
             .ok_or_else(|| {
                 std::io::Error::other("Source configuration has no matching owned snapshot")

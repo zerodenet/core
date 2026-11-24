@@ -359,7 +359,9 @@ impl Proxy {
                     managed_config,
                     dns_hijacked_queries: Arc::new(AtomicU64::new(0)),
                 },
-                prepared.config.unwrap_or_else(|| self.engine().config()),
+                prepared
+                    .config
+                    .unwrap_or_else(|| self.engine().runtime_snapshot().resource_config().clone()),
                 prepared.recovery,
             )
             .await
@@ -396,7 +398,9 @@ impl Proxy {
     ) -> Result<(), EngineError> {
         #[cfg(feature = "raw-ip-runtime")]
         if self.has_tun_packet_budget_recovery() {
-            let config = candidate.clone().unwrap_or_else(|| self.engine().config());
+            let config = candidate
+                .clone()
+                .unwrap_or_else(|| self.engine().runtime_snapshot().resource_config().clone());
             if config.runtime.tun.as_ref() != desired || config.runtime.network.mtu != network_mtu {
                 return Err(io::Error::other(
                     "System TUN recovery requires the exact candidate snapshot",

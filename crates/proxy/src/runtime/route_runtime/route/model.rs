@@ -199,7 +199,9 @@ impl InboundRouteRuntimeFactory {
         else {
             return crate::inventory::PacketRouteTarget::Unsupported;
         };
-        let plan = services.protocols().current_components(snapshot.config());
+        let plan = services
+            .protocols()
+            .current_components(snapshot.resource_config());
         services.protocols().prepare_packet_route_target_admitted(
             snapshot.config(),
             resolved,

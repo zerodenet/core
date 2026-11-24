@@ -15,7 +15,7 @@ impl OrchestrationState {
         snapshot: &'a Arc<zero_engine::EngineRuntimeSnapshot>,
     ) -> zero_platform_tokio::contract::BoxFuture<'a, Result<TunRecoveryResources, String>> {
         Box::pin(async move {
-            let config = snapshot.config().clone();
+            let config = snapshot.resource_config().clone();
             proxy
                 .validate_tun_packet_budget(&config)
                 .map_err(|error| error.to_string())?;

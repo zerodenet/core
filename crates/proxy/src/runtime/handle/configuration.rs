@@ -275,7 +275,7 @@ impl ProxyHandle {
         // later commit failed. Recovery must confirm and publish the exact new
         // old-config candidate; discarding it cannot revive a closed pool.
         let token = self.retire_prepared_dns(timeout).await?;
-        let component_config = previous.config().clone();
+        let component_config = previous.resource_config().clone();
         self.proxy
             .protocols
             .scan_components(&component_config, tokio::time::Instant::now() + timeout)

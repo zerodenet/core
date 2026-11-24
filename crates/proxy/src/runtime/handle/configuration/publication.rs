@@ -14,7 +14,7 @@ impl ProxyHandle {
         let token = self.retire_prepared_dns(timeout).await?;
         let revoked_directions =
             snapshot.revoked_endpoint_directions(&self.proxy.engine.runtime_snapshot());
-        let component_config = snapshot.config().clone();
+        let component_config = snapshot.resource_config().clone();
         self.proxy
             .protocols
             .scan_components(&component_config, tokio::time::Instant::now() + timeout)

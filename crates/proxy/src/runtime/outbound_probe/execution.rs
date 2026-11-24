@@ -32,7 +32,7 @@ impl OutboundProbeRuntime {
         }
         let runtime = self.clone();
         let host = self.services.protocols().runtime_host();
-        let config = self.services.snapshot().config().clone();
+        let config = self.services.snapshot().resource_config().clone();
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(self.probe_deadline().timeout_ms);
         let purpose = if intent == crate::runtime::tcp_dispatch::TcpDispatchIntent::PolicyProbe {

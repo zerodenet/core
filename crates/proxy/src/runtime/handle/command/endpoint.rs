@@ -176,7 +176,7 @@ impl ProxyHandle {
                 .await?;
             let dns = self.retire_prepared_dns(TIMEOUT).await
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
-            let component_config = candidate.config().clone();
+            let component_config = candidate.resource_config().clone();
             self.proxy
                 .protocols
                 .scan_components(&component_config, tokio::time::Instant::now() + TIMEOUT)
@@ -322,13 +322,16 @@ impl ProxyHandle {
             .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
         self.proxy
             .protocols
-            .scan_components(snapshot.config(), tokio::time::Instant::now() + TIMEOUT)
+            .scan_components(
+                snapshot.resource_config(),
+                tokio::time::Instant::now() + TIMEOUT,
+            )
             .await
             .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
         let publish = || {
             self.proxy
                 .protocols
-                .commit_components(snapshot.config(), || {
+                .commit_components(snapshot.resource_config(), || {
                     self.proxy
                         .resolver
                         .commit_reload_resources(&token)
@@ -336,7 +339,7 @@ impl ProxyHandle {
                 })?;
             self.proxy
                 .inbound_owners
-                .finish_recovery_transition(snapshot.config());
+                .finish_recovery_transition(snapshot.resource_config());
             Ok(())
         };
         let result = if compensating {
@@ -348,7 +351,7 @@ impl ProxyHandle {
         #[cfg(feature = "raw-ip-runtime")]
         self.proxy
             .protocols
-            .finish_device_publication(snapshot.config())
+            .finish_device_publication(snapshot.resource_config())
             .await
             .map_err(|error| {
                 ApiError::new(

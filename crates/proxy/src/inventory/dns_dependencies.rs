@@ -45,7 +45,7 @@ impl ProtocolInventory {
             .flat_map(|config| config.servers.values())
             .filter_map(|server| server.detour().map(str::to_owned))
             .collect();
-        let current = self.current_components(previous.config());
+        let current = self.current_components(previous.resource_config());
         targets
             .into_iter()
             .filter(|target| {

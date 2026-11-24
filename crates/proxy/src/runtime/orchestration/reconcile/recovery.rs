@@ -93,7 +93,7 @@ impl OrchestrationState {
                 ));
             } else if can_restore && !tun_recovery {
                 if let Err(error) = proxy
-                    .reconcile_configured_tun_for_config(previous.config().clone())
+                    .reconcile_configured_tun_for_config(previous.resource_config().clone())
                     .await
                 {
                     can_restore = false;
@@ -108,7 +108,7 @@ impl OrchestrationState {
                 }
             }
             self.applied_snapshot = previous;
-            let previous_config = self.applied_snapshot.config().clone();
+            let previous_config = self.applied_snapshot.resource_config().clone();
             let mut dns_recovery = None;
             #[cfg(feature = "raw-ip-runtime")]
             let mut _tun_recovery_resources = None;
@@ -382,7 +382,7 @@ async fn restore_dns(
     snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
     components: Option<&crate::component::catalog::ComponentPlan>,
 ) -> Result<zero_dns::DnsReloadResources, String> {
-    let config = snapshot.config();
+    let config = snapshot.resource_config();
     let dispatch = snapshot.dns_dispatch();
     let token = proxy
         .resolver

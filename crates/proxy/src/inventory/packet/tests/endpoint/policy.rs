@@ -15,6 +15,9 @@ async fn live_global_selector_urltest_and_fallback_order_select_actual_providers
         let live = Fixture::start(true).await;
         let engine = live.proxy.engine();
         let revision = engine.config_revision();
+        let original_config = engine.runtime_snapshot().resource_config().clone();
+        let original_plan = live.plan();
+        let original_role = original_plan.configured("wg").unwrap().role_id();
         engine.set_mode(zero_config::ModeConfig::Direct);
         assert!(matches!(classify(&live), PacketRouteTarget::Flow));
         for (outbound, packet) in [("plain", false), ("wg", true), ("plain", false)] {
@@ -77,11 +80,32 @@ async fn live_global_selector_urltest_and_fallback_order_select_actual_providers
         assert_ne!(orders[0], orders[1]);
         assert_eq!(orders[0], orders[2]);
         assert_eq!(orders[1], orders[3]);
-        assert_eq!(engine.config_revision(), revision);
-        // Every policy change kept the same published provider generation.
-        assert!(live
-            .plan()
-            .has_packet_provider(live.plan().configured("wg").unwrap().role_id()));
+        assert_eq!(engine.config_revision(), revision + 7);
+        let live_plan = live.plan();
+        assert!(Arc::ptr_eq(&original_plan, &live_plan));
+        assert_eq!(live_plan.configured("wg").unwrap().role_id(), original_role);
+        assert!(live_plan.has_packet_provider(original_role));
+        let owned = live
+            .proxy
+            .tcp_runtime_services_for_owned_config(&original_config)
+            .unwrap();
+        assert!(std::ptr::eq(
+            owned.snapshot(),
+            engine.runtime_snapshot().as_ref()
+        ));
+        assert!(Arc::ptr_eq(
+            owned.components.as_ref().unwrap(),
+            &original_plan
+        ));
+        assert!(Arc::ptr_eq(
+            &live
+                .proxy
+                .tcp_runtime_services()
+                .components
+                .clone()
+                .unwrap(),
+            &original_plan
+        ));
         drop(snapshot);
         live.running.shutdown().await.unwrap();
     })

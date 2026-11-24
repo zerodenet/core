@@ -392,7 +392,7 @@ impl super::ProtocolInventory {
         deadline: tokio::time::Instant,
         cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> Result<(), zero_engine::EngineError> {
-        if !std::ptr::eq(services.snapshot().config().as_ref(), config.as_ref()) {
+        if !Arc::ptr_eq(services.snapshot().resource_config(), config) {
             return Err(zero_engine::EngineError::InvalidPlan {
                 message: "device resolution source differs from the actual candidate snapshot"
                     .into(),

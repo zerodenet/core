@@ -92,13 +92,13 @@ impl CurrentServiceSource {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
-            .filter(|pending| Arc::ptr_eq(pending.expected.config(), &config))
+            .filter(|pending| Arc::ptr_eq(pending.expected.resource_config(), &config))
             .map(|pending| pending.expected.clone());
         let snapshot = match pending {
             Some(pending) => pending,
             None => {
                 let current = self.engine.runtime_snapshot();
-                if !Arc::ptr_eq(current.config(), &config) {
+                if !Arc::ptr_eq(current.resource_config(), &config) {
                     return Err(denied());
                 }
                 current

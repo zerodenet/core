@@ -156,7 +156,7 @@ impl OrchestrationState {
             let cleanup = proxy
                 .protocols
                 .discard_device_components(
-                    snapshot.config(),
+                    snapshot.resource_config(),
                     Instant::now() + Duration::from_secs(5),
                 )
                 .await;
@@ -186,10 +186,13 @@ impl OrchestrationState {
                 let publication = async {
                     proxy
                         .protocols
-                        .stage_device_publication(snapshot.config(), prepared)?;
+                        .stage_device_publication(snapshot.resource_config(), prepared)?;
                     proxy
                         .protocols
-                        .scan_components(snapshot.config(), Instant::now() + Duration::from_secs(5))
+                        .scan_components(
+                            snapshot.resource_config(),
+                            Instant::now() + Duration::from_secs(5),
+                        )
                         .await?;
                     preparing.ensure_open()?;
                     if proxy.egress_interface.generation() != generation {
@@ -200,7 +203,7 @@ impl OrchestrationState {
                     }
                     proxy
                         .protocols
-                        .commit_components(snapshot.config(), || Ok(()))
+                        .commit_components(snapshot.resource_config(), || Ok(()))
                         .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
                 }
                 .await;
@@ -208,7 +211,7 @@ impl OrchestrationState {
                     if let Err(cleanup) = proxy
                         .protocols
                         .discard_device_components(
-                            snapshot.config(),
+                            snapshot.resource_config(),
                             Instant::now() + Duration::from_secs(5),
                         )
                         .await
@@ -227,7 +230,7 @@ impl OrchestrationState {
                 }
                 if let Err(error) = proxy
                     .protocols
-                    .finish_device_publication(snapshot.config())
+                    .finish_device_publication(snapshot.resource_config())
                     .await
                 {
                     self.device_retry_at = Some(Instant::now() + self.device_retry_delay);
@@ -279,7 +282,7 @@ impl OrchestrationState {
                 if let Err(cleanup) = proxy
                     .protocols
                     .discard_device_components(
-                        snapshot.config(),
+                        snapshot.resource_config(),
                         Instant::now() + Duration::from_secs(5),
                     )
                     .await
@@ -310,7 +313,7 @@ impl OrchestrationState {
         proxy: &Proxy,
         snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
     ) -> Result<crate::adapters::devices::PreparedDevices, zero_engine::EngineError> {
-        let config = snapshot.config();
+        let config = snapshot.resource_config();
         proxy
             .protocols
             .discard_device_components(config, Instant::now() + Duration::from_secs(5))

@@ -37,7 +37,7 @@ impl OutboundProbeRuntime {
             crate::component::direct_bridge::connect_target(&services, host, port, call).await
         }));
         let run = self.services.protocols().runtime_host();
-        let config = self.services.snapshot().config().clone();
+        let config = self.services.snapshot().resource_config().clone();
         let work = run.run_probe(
             &config,
             None,

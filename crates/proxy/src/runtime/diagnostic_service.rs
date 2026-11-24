@@ -13,7 +13,7 @@ impl Proxy {
             let snapshot = self.engine().runtime_snapshot();
             if self
                 .protocols
-                .current_components(snapshot.config())
+                .current_components(snapshot.resource_config())
                 .is_some()
             {
                 return self
@@ -40,7 +40,7 @@ impl Proxy {
             self.host
             .apply()
             .run(self.host.apply_lock().clone(), async move {
-                let config = proxy.engine().runtime_snapshot().config().clone();
+                let config = proxy.engine().runtime_snapshot().resource_config().clone();
                 let result = proxy
                     .protocols
                     .maintain_service_components(

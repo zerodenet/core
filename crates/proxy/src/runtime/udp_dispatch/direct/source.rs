@@ -121,7 +121,7 @@ impl DirectDatagramTarget {
             actual
                 .protocols()
                 .ok()
-                .and_then(|protocols| protocols.current_components(snapshot.config()))
+                .and_then(|protocols| protocols.current_components(snapshot.resource_config()))
                 .is_none_or(|current| !Arc::ptr_eq(plan, &current))
         }) {
             return Err(error(

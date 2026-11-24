@@ -208,6 +208,7 @@ impl Engine {
                 ),
                 dns_dispatch: routing.dns_dispatch,
                 config: Arc::new(config),
+                resource_config: None,
                 plan,
                 router,
                 bypass,

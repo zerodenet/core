@@ -96,7 +96,7 @@ impl OrchestrationState {
         self.preparing_inbounds.ensure_open()?;
         proxy.inbound_owners.open_bind_admission()?;
         let snapshot = self.applied_snapshot.clone();
-        let config = snapshot.config().clone();
+        let config = snapshot.resource_config().clone();
         proxy.protocols.validate_dial_environment(&config)?;
         let components = proxy
             .protocols
@@ -251,7 +251,7 @@ impl OrchestrationState {
             .await?;
         self.start_urltests();
         self.publish_endpoint_facts(proxy);
-        log_started(proxy, &config);
+        log_started(proxy, snapshot.config());
         self.services.accept().await;
         proxy.mark_orchestration_ready();
 

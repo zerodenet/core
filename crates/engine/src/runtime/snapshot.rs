@@ -36,6 +36,7 @@ pub struct EngineRuntimeSnapshot {
     pub(super) config_revision: Arc<AtomicU64>,
     pub(super) publication: ConfigurationPublication,
     pub(super) config: Arc<RuntimeConfig>,
+    pub(super) resource_config: Option<Arc<RuntimeConfig>>,
     pub(super) endpoint_intents: Arc<super::endpoint::EndpointIntents>,
     pub(super) plan: Arc<EnginePlan>,
     pub(super) dns_dispatch: Option<zero_router::DomainDispatcher<String>>,
@@ -60,6 +61,12 @@ impl EngineRuntimeSnapshot {
 
     pub fn config(&self) -> &Arc<RuntimeConfig> {
         &self.config
+    }
+
+    /// Mode changes publish a new control-plane configuration while keeping
+    /// the exact configuration used to prepare the retained runtime resources.
+    pub fn resource_config(&self) -> &Arc<RuntimeConfig> {
+        self.resource_config.as_ref().unwrap_or(&self.config)
     }
 
     pub fn plan(&self) -> &Arc<EnginePlan> {

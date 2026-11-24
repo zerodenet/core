@@ -141,7 +141,7 @@ impl OrchestrationState {
             }
         }
         self.publish_reload_transitions(proxy, &new_snapshot);
-        let new_config = new_snapshot.config().clone();
+        let new_config = new_snapshot.resource_config().clone();
         #[cfg(feature = "raw-ip-runtime")]
         let restarted = tun_restart.then(|| {
             proxy
@@ -375,7 +375,7 @@ impl OrchestrationState {
                 self.applied_snapshot.config(),
                 &new_config,
             );
-            let previous_config = self.applied_snapshot.config().clone();
+            let previous_config = self.applied_snapshot.resource_config().clone();
             for input in &previous_config.inbounds {
                 let Some(owner) = proxy.inbound_owners.owner(&input.tag) else {
                     continue;
@@ -694,14 +694,14 @@ impl OrchestrationState {
                 proxy
                     .protocols
                     .scan_components(
-                        new_snapshot.config(),
+                        new_snapshot.resource_config(),
                         tokio::time::Instant::now() + std::time::Duration::from_secs(5),
                     )
                     .await
                     .map_err(|error| error.to_string())?;
                 proxy
                     .protocols
-                    .commit_components(new_snapshot.config(), || {
+                    .commit_components(new_snapshot.resource_config(), || {
                         proxy
                             .resolver
                             .commit_reload_resources(&token)

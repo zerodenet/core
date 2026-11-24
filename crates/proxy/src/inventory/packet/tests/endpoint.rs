@@ -54,9 +54,10 @@ impl Fixture {
         Self { proxy, running }
     }
     fn plan(&self) -> Arc<crate::component::catalog::ComponentPlan> {
+        let snapshot = self.proxy.engine().runtime_snapshot();
         self.proxy
             .protocols
-            .current_components(&self.proxy.engine().config())
+            .current_components(snapshot.resource_config())
             .unwrap()
     }
     fn target(&self, protocol: u8, mode: RouteMode) -> PacketRouteTarget {

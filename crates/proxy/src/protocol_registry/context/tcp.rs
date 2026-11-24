@@ -130,9 +130,9 @@ impl TcpRuntimeServices {
         retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     ) -> Self {
         let components = protocols
-            .current_components(snapshot.config())
+            .current_components(snapshot.resource_config())
             .map(Ok)
-            .unwrap_or_else(|| protocols.prepare_components(snapshot.config().clone()));
+            .unwrap_or_else(|| protocols.prepare_components(snapshot.resource_config().clone()));
         Self::from_prepared(
             engine,
             (snapshot, components),
@@ -209,7 +209,7 @@ impl TcpRuntimeServices {
             // loop with the old configuration. This grants no Business access.
             services.execution.components = services
                 .protocols
-                .prepared_components(services.execution.snapshot.config())
+                .prepared_components(services.execution.snapshot.resource_config())
                 .unwrap_or_else(|| {
                     Err(Arc::new(crate::component::instance::invalid(
                         zero_platform_tokio::contract::Reason::StalePlan,
@@ -226,12 +226,12 @@ impl TcpRuntimeServices {
         // Capture the actually published plan, not that uncommitted candidate.
         services.execution.components = services
             .protocols
-            .current_components(services.execution.snapshot.config())
+            .current_components(services.execution.snapshot.resource_config())
             .map(Ok)
             .unwrap_or_else(|| {
                 services
                     .protocols
-                    .prepare_components(services.execution.snapshot.config().clone())
+                    .prepare_components(services.execution.snapshot.resource_config().clone())
             });
         services
     }
@@ -239,7 +239,7 @@ impl TcpRuntimeServices {
     /// Refresh only the exact already owned candidate after Source StopOld.
     /// Preserve the target publication gate, ingress and caller bookkeeping.
     pub(crate) fn with_prepared_components(&self) -> Result<Self, zero_engine::EngineError> {
-        let config = self.execution.snapshot.config();
+        let config = self.execution.snapshot.resource_config();
         let plan = self
             .protocols
             .prepared_components(config)
