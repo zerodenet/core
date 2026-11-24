@@ -79,16 +79,16 @@ async fn metadata_shrink_retains_real_old_tcp_and_native_owner_until_history_and
         .packet
         .clone();
     let baseline = root.driver_metadata().occupied;
-    let history_layout = PacketMetadataArc::<[u8; 4096]>::layout().unwrap();
+    let history_layout = PacketMetadataArc::<[u8; 16384]>::layout().unwrap();
     let history = PacketMetadataArc::from_prepaid(
-        [3u8; 4096],
+        [3u8; 16384],
         root.reserve_driver_metadata(history_layout).unwrap(),
     )
     .ok()
     .unwrap();
-    let header_layout = PacketMetadataArc::<[u8; 2048]>::layout().unwrap();
+    let header_layout = PacketMetadataArc::<[u8; 8192]>::layout().unwrap();
     let header = PacketMetadataArc::from_prepaid(
-        [4u8; 2048],
+        [4u8; 8192],
         root.reserve_driver_metadata(header_layout).unwrap(),
     )
     .ok()
@@ -97,7 +97,12 @@ async fn metadata_shrink_retains_real_old_tcp_and_native_owner_until_history_and
     drop(header);
     let limit = root.driver_metadata().limit;
     let mut next = initial;
-    next.runtime.packet_driver_metadata_total_max_bytes = Some(baseline.bytes() + 1);
+    // The test keeps the retired owner's diagnostics and opens another TCP
+    // peer after replacement. Leave room for those original receiver books,
+    // while each of the explicit history/header allocations exceeds it.
+    let next_bytes = baseline.bytes() * 3;
+    assert!(history_layout.bytes() > next_bytes && header_layout.bytes() > next_bytes);
+    next.runtime.packet_driver_metadata_total_max_bytes = Some(next_bytes);
     assert!(handle
         .apply_runtime_config_and_wait(next.clone(), Duration::from_secs(5))
         .await
@@ -162,7 +167,7 @@ async fn metadata_shrink_retains_real_old_tcp_and_native_owner_until_history_and
         PacketMetadataLayout::new(
             next.runtime
                 .effective_packet_driver_metadata_total_max_allocations(),
-            baseline.bytes() + 1
+            next_bytes
         )
     );
     // Successful install must end the old metadata fence before startup.
