@@ -125,6 +125,9 @@ impl Client {
             .iter()
             .all(|worker| worker.scope_identity().same_scope(source.device().scope())));
         let root = self.proxy.protocols.runtime_host().original_budgets();
+        assert!(source.has_original_total(&root.carrier));
+        let outer_scope = self.outer_source.original_scope_for_test();
+        assert!(outer_scope.resource_open());
         self.running.shutdown().await.unwrap();
         for query in queries {
             let joined = query.try_joined().unwrap();
@@ -143,7 +146,7 @@ impl Client {
         }
         assert!(
             self.original.closed().is_none(),
-            "software Scope ACK cannot mint the opaque physical ancestor's NativeClose"
+            "native close receipts belong to the registered lower carriers"
         );
         for (owner, originals) in &self.physical {
             assert!(owner.closed().unwrap().matches(owner));
@@ -155,12 +158,15 @@ impl Client {
         }
         assert_eq!(
             root.carrier.snapshot().charged,
-            1,
-            "only the same opaque Source ancestor debt remains charged"
+            0,
+            "the software Source and both actual outer carrier originals have retired"
         );
         assert_eq!(root.packet.native().occupied.frames, 0);
         assert_eq!(root.packet.native().occupied.bytes, 0);
+        assert!(outer_scope.resource_open());
+        assert!(self.outer_source.terminal_for_test().is_none());
         self.outer_running.shutdown().await.unwrap();
+        assert!(!outer_scope.resource_open());
         let terminal = self.outer_source.terminal_for_test().unwrap();
         assert_eq!(terminal.identity(), self.outer_source.identity());
         assert!(
