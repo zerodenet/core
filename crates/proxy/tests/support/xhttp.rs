@@ -1,6 +1,10 @@
 use super::interop::*;
 use super::{free_port, spawn_engine, wait_for_listener};
 use serde_json::json;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tokio::time::{timeout, Duration};
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy;
@@ -72,7 +76,7 @@ pub async fn interop_options(
         (
             json!({"inbounds":[{"tag":"vless","listen":{"address":"127.0.0.1","port":port},"protocol":{"type":"vless","users":[{"id":ID}],"split_http":{"path":"/tunnel/","mode":"auto"}}}],
             "outbounds":[],"route":{"rules":[],"final":{"type":"direct"}}}),
-            json!({"log":{"loglevel":"warning"},"inbounds":[{"listen":"127.0.0.1","port":socks,"protocol":"socks","settings":{"auth":"noauth","udp":true}}],
+            json!({"log":{"loglevel":"info"},"inbounds":[{"listen":"127.0.0.1","port":socks,"protocol":"socks","settings":{"auth":"noauth","udp":true}}],
             "outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"127.0.0.1","port":port,"users":[{"id":ID,"encryption":"none"}]}]},"streamSettings":settings}]}),
         )
     };
@@ -222,6 +226,12 @@ pub async fn interop_options(
         wait_for_listener(port).await;
     }
     wait_for_listener(socks).await;
+    let tcp_verified = Arc::new([const { AtomicBool::new(false) }; 4]);
+    let mut tcp_targets = Vec::new();
+    let udp_target_sent = Arc::new(AtomicBool::new(false));
+    let mut udp_target = None;
+    let mut udp_verified = false;
+    let mut burst_joined = false;
     let result =
         timeout(Duration::from_secs(40), async {
             let mut jobs = tokio::task::JoinSet::new();
@@ -238,9 +248,12 @@ pub async fn interop_options(
                 } else {
                     spawn_bound_tcp_echo(payload.len()).await
                 };
+                tcp_targets.push((echo, server.abort_handle()));
+                let verified = Arc::clone(&tcp_verified);
                 jobs.spawn(async move {
                     let received = socks5_tcp_echo_once(socks, echo, &payload).await?;
                     assert_eq!(received, payload);
+                    verified[usize::from(byte)].store(true, Ordering::Relaxed);
                     server.await.map_err(std::io::Error::other)?;
                     Ok::<_, std::io::Error>(())
                 });
@@ -250,14 +263,18 @@ pub async fn interop_options(
             }
             let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
             let udp = socket.local_addr().unwrap().port();
+            udp_target = Some(udp);
+            let sent = Arc::clone(&udp_target_sent);
             let echo = tokio::spawn(async move {
                 let mut buffer = vec![0; 1601];
                 let (size, peer) = socket.recv_from(&mut buffer).await.unwrap();
                 assert_eq!(size, 1600);
                 socket.send_to(&buffer[..size], peer).await.unwrap();
+                sent.store(true, Ordering::Relaxed);
             });
             let payload = vec![9; 1600];
             assert_eq!(socks5_udp_echo(socks, udp, &payload).await, payload);
+            udp_verified = true;
             echo.await.unwrap();
             if gated {
                 while !engine.completed_sessions().iter().any(|session| {
@@ -272,6 +289,7 @@ pub async fn interop_options(
             while let Some(job) = jobs.join_next().await {
                 job.map_err(std::io::Error::other)??;
             }
+            burst_joined = true;
             if relay.is_some() {
                 // Every first-burst business caller has now returned. Exercise
                 // the actual cached driver's next physical borrow as well; a
@@ -286,6 +304,17 @@ pub async fn interop_options(
         .await;
     if !matches!(result, Ok(Ok(()))) {
         eprintln!("XHTTP business result before fixture teardown: mode={mode} zero_client={zero_client} tls={tls} result={result:?}");
+        for (index, (port, target)) in tcp_targets.iter().enumerate() {
+            let verified = tcp_verified[index].load(Ordering::Relaxed);
+            eprintln!(
+                "XHTTP TCP echo target={port} target_task_finished={} socks_payload_verified={verified}",
+                target.is_finished()
+            );
+        }
+        let udp_target_sent = udp_target_sent.load(Ordering::Relaxed);
+        eprintln!(
+            "XHTTP UDP echo target={udp_target:?} target_reply_sent={udp_target_sent} socks_payload_verified={udp_verified} burst_joined={burst_joined}"
+        );
     }
     // Keep the real remote peer alive while the original Zero owner stops and
     // confirms its HTTP drivers. Killing Xray first injects a peer crash into
