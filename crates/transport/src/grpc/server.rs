@@ -23,7 +23,7 @@ impl GrpcIncoming {
             driver.0.abort();
         }
         if let Some(stop) = &self.scoped {
-            stop.0.cancel();
+            stop.cancel.cancel();
         }
     }
 }

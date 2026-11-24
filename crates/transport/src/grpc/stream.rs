@@ -11,6 +11,7 @@ pub struct GrpcStream {
     read_buffer: Vec<u8>,
     read_offset: usize,
     write_closed: bool,
+    write_finished: bool,
 }
 
 impl GrpcStream {
@@ -31,6 +32,7 @@ impl GrpcStream {
             read_buffer: Vec::new(),
             read_offset: 0,
             write_closed: false,
+            write_finished: false,
         }
     }
     fn poll_inline(&mut self, cx: &mut Context<'_>, reading: bool) {
@@ -47,6 +49,23 @@ impl GrpcStream {
         self.inline
             .as_ref()
             .and_then(super::inline::Inline::failure)
+    }
+    fn poll_completed_stream(&self, cx: &mut Context<'_>, reading: bool) -> Poll<io::Result<()>> {
+        match self
+            .incoming
+            .as_ref()
+            .and_then(|incoming| incoming.scoped.as_ref())
+        {
+            Some(stop)
+                if self.write_finished
+                    && self.read_offset == self.read_buffer.len()
+                    && self.read_rx.is_closed()
+                    && self.read_rx.is_empty() =>
+            {
+                stop.poll_completed_stream(cx, reading)
+            }
+            _ => Poll::Ready(Ok(())),
+        }
     }
 }
 
@@ -90,7 +109,10 @@ impl AsyncRead for GrpcStream {
                 self.inline_local_ready();
                 Poll::Ready(Err(error))
             }
-            Poll::Ready(None) => Poll::Ready(self.inline_failure().map_or(Ok(()), Err)),
+            Poll::Ready(None) => match self.inline_failure() {
+                Some(source) => Poll::Ready(Err(source)),
+                None => self.poll_completed_stream(cx, true),
+            },
             Poll::Pending => Poll::Pending,
         };
         self.poll_inline(cx, true);
@@ -168,6 +190,10 @@ impl AsyncWrite for GrpcStream {
         }
         let result = self.progress.poll(cx, true);
         self.poll_inline(cx, false);
+        if matches!(result, Poll::Ready(Ok(()))) {
+            self.write_finished = true;
+            return self.poll_completed_stream(cx, false);
+        }
         result
     }
 }

@@ -2,9 +2,12 @@
 use super::*;
 use crate::profile::OwnedGrpcProfile;
 use futures_util::{stream::FuturesUnordered, StreamExt};
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, OnceLock,
+    },
+    task::{Context, Poll},
 };
 use zero_platform_tokio::{
     contract::{
@@ -13,10 +16,43 @@ use zero_platform_tokio::{
     AcceptedCaller,
 };
 
-pub(super) struct Stop(pub CancellationToken);
+pub(super) struct Stop {
+    pub(super) cancel: CancellationToken,
+    finish: Arc<Finish>,
+}
+
+#[derive(Default)]
+struct Finish {
+    result: OnceLock<Result<(), Arc<ChannelError>>>,
+    read: futures_util::task::AtomicWaker,
+    write: futures_util::task::AtomicWaker,
+}
+
+impl Stop {
+    /// The original, single-stream driver has to flush TLS shutdown before
+    /// the accepted handler returns and the graph cancels its auxiliary tasks.
+    pub(super) fn poll_completed_stream(
+        &self,
+        cx: &mut Context<'_>,
+        reading: bool,
+    ) -> Poll<io::Result<()>> {
+        self.cancel.cancel();
+        if reading {
+            self.finish.read.register(cx.waker());
+        } else {
+            self.finish.write.register(cx.waker());
+        }
+        match self.finish.result.get() {
+            Some(Ok(())) => Poll::Ready(Ok(())),
+            Some(Err(source)) => Poll::Ready(Err(io::Error::other(source.clone()))),
+            None => Poll::Pending,
+        }
+    }
+}
+
 impl Drop for Stop {
     fn drop(&mut self) {
-        self.0.cancel();
+        self.cancel.cancel();
     }
 } // Request only, never close proof.
 fn failure(source: impl std::error::Error + Send + Sync + 'static) -> ChannelError {
@@ -53,16 +89,22 @@ where
     let profile = OwnedGrpcProfile::from_profile(profile);
     let cancel = CancellationToken::new();
     let stopping = cancel.clone();
+    let finish = Arc::new(Finish::default());
+    let actual = finish.clone();
     let (tx, rx) = mpsc::channel(64);
     caller
-        .spawn(TaskClass::Auxiliary, move |_| {
-            drive(stream, profile, tx, stopping)
+        .spawn(TaskClass::Auxiliary, move |_| async move {
+            let result = drive(stream, profile, tx, stopping).await.map_err(Arc::new);
+            let _ = actual.result.set(result.clone());
+            actual.read.wake();
+            actual.write.wake();
+            result.map_err(ChannelError::retained)
         })
         .map_err(|source| RuntimeError::Io(io::Error::other(source)))?;
     Ok(server::GrpcIncoming {
         receiver: tokio::sync::Mutex::new(rx),
         driver: None,
-        scoped: Some(Arc::new(Stop(cancel))),
+        scoped: Some(Arc::new(Stop { cancel, finish })),
     })
 }
 async fn drive<S>(
