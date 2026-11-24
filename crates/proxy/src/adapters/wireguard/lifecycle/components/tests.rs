@@ -154,7 +154,14 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
     let (registry, factories, devices) =
         crate::register::compiled_registries_with_background(Some(network.clone()));
     let adapter = devices.wireguard.as_ref().unwrap().clone();
-    let catalog = ComponentCatalog::with_factories(factories);
+    let packet = devices.packet_return_totals.clone();
+    let host = crate::runtime::RuntimeHost::with_original_budgets(
+        factories,
+        Arc::new(zero_runtime::HostOriginalBudgets::with_packet_root(
+            packet.clone(),
+        )),
+    );
+    let catalog = host.components();
     catalog
         .prepare_with_device_resources(config.clone(), |resources| {
             adapter
@@ -217,6 +224,16 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
         .unwrap();
     assert_eq!(pending.traffic.lock().unwrap().len(), traffic_count);
     assert!(pending.get("wg-in").unwrap().ready().is_none());
+    // This fixture captures the software endpoint's own output before the
+    // wire Source. Install the prepaid allocation view its real Source would
+    // supply so the TCP stack can reserve its receive window before SYN.
+    let endpoint = pending.get("wg-in").unwrap();
+    let source = packet.native_grant(1420).unwrap();
+    endpoint
+        .actual_graph()
+        .unwrap()
+        .install_source_memory(source.memory_view().unwrap())
+        .unwrap();
     catalog
         .start_device_components(config.clone(), deadline())
         .await
@@ -250,7 +267,13 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
         None,
     ));
     std::future::poll_fn(|cx| {
-        assert!(connecting.as_mut().poll(cx).is_pending());
+        match connecting.as_mut().poll(cx) {
+            Poll::Pending => (),
+            Poll::Ready(Ok(_)) => panic!("TCP connected before the original SYN was observed"),
+            Poll::Ready(Err(error)) => {
+                panic!("TCP setup exited before the original SYN: {error:?}")
+            }
+        }
         Poll::Ready(())
     })
     .await;
@@ -269,6 +292,7 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
     catalog.shutdown(deadline()).await.unwrap();
     assert!(witnesses.iter().all(|witness| witness.is_joined()));
     assert!(connecting.await.is_err());
+    source.revoke();
     adapter.close_devices().await.unwrap();
 }
 
