@@ -36,11 +36,7 @@ pub(crate) async fn connect_carrier_datagram(
         return Err(failure(Reason::StalePlan));
     }
     let role = node.slot.datagram(deadline).await?;
-    role.open_carrier(
-        DatagramRequest {
-            association: AssociationId(0),
-            targets: DatagramTargets::Fixed(destination.clone()),
-        },
+    let context = if node.relay.is_empty() {
         OpenContext {
             identity: RequestIdentity::Service(
                 Arc::new(ServiceRequestFacts {
@@ -53,7 +49,24 @@ pub(crate) async fn connect_carrier_datagram(
             cancel: call.cancel.clone(),
             observer: None,
             upstream,
+        }
+    } else {
+        prepare_stream_path(
+            services,
+            &node.relay,
+            ServicePurpose::DnsQuery,
+            call,
+            upstream,
+        )
+        .await?
+        .1
+    };
+    role.open_carrier(
+        DatagramRequest {
+            association: AssociationId(0),
+            targets: DatagramTargets::Fixed(destination.clone()),
         },
+        context,
     )
     .await
 }

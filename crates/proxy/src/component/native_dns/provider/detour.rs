@@ -110,6 +110,18 @@ impl Provider {
                 )
                 .map_err(|failure| std::io::Error::other(failure.error))?;
             if let Some(node) = datagram {
+                if !node.relay.is_empty()
+                    && !services.protocols().carrier_service_target(
+                        services.snapshot(),
+                        target,
+                        components,
+                    )
+                {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "DNS Datagram relay has no complete original carrier path",
+                    ));
+                }
                 return self
                     .open_datagram_detour(
                         &execution,

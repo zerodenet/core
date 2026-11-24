@@ -7,6 +7,7 @@ pub(crate) struct ServiceDatagram {
     pub(crate) tag: Option<String>,
     pub(crate) direct: bool,
     pub(crate) native: Option<(usize, zero_core::request::Destination)>,
+    pub(crate) relay: Vec<ServiceNode>,
 }
 impl ProtocolInventory {
     pub(crate) fn prepare_service_datagram(
@@ -15,12 +16,48 @@ impl ProtocolInventory {
         resolved: &ResolvedOutbound<'_>,
         components: &ComponentPlan,
     ) -> Result<Option<ServiceDatagram>, TcpOutboundFailure> {
-        // The old packet exchange accepted one leaf only. A resolved relay or
-        // fallback keeps its existing Stream DNS grammar, without a second pick.
-        if let ResolvedOutbound::Single(
-            leaf @ zero_engine::ResolvedLeafOutbound::Direct { dial_policy, .. },
-        ) = resolved
-        {
+        match resolved {
+            ResolvedOutbound::Single(leaf) => self.service_datagram_leaf(ctx, leaf, components),
+            ResolvedOutbound::Relay { chain } => {
+                let Some(tail) = chain.last() else {
+                    return Ok(None);
+                };
+                let Some(mut node) = self.service_datagram_leaf(ctx, tail, components)? else {
+                    return Ok(None);
+                };
+                // Reuse the existing qualified Service prefix to reach a
+                // self-owned cached/Metadata Datagram. Native Datagram roots
+                // still need their exact single-role admission.
+                let role = node.slot.role_id();
+                if !(components.has_metadata_stream_provider(role)
+                    || components.has_cached_stream_provider(role))
+                    || node.native.is_some()
+                    || node.direct
+                {
+                    return Ok(None);
+                }
+                let Some(ServicePlan::Relay(nodes)) =
+                    self.prepare_service_stream(ctx, resolved, components)?
+                else {
+                    return Ok(None);
+                };
+                if nodes.first().is_none_or(|first| first.endpoint.is_none()) {
+                    return Ok(None);
+                }
+                node.relay = nodes;
+                Ok(Some(node))
+            }
+            ResolvedOutbound::Fallback { .. } => Ok(None),
+        }
+    }
+
+    fn service_datagram_leaf(
+        &self,
+        ctx: OutboundAdapterContext<'_>,
+        leaf: &zero_engine::ResolvedLeafOutbound<'_>,
+        components: &ComponentPlan,
+    ) -> Result<Option<ServiceDatagram>, TcpOutboundFailure> {
+        if let zero_engine::ResolvedLeafOutbound::Direct { dial_policy, .. } = leaf {
             let Some(node) = self.service_node(ctx, leaf, components)? else {
                 return Ok(None);
             };
@@ -33,11 +70,10 @@ impl ProtocolInventory {
                 tag: node.tag,
                 native: None,
                 direct: true,
+                relay: Vec::new(),
             }));
         }
-        let ResolvedOutbound::Single(zero_engine::ResolvedLeafOutbound::Proxy { identity }) =
-            resolved
-        else {
+        let zero_engine::ResolvedLeafOutbound::Proxy { identity } = leaf else {
             return Ok(None);
         };
         let outbound = ctx
@@ -130,6 +166,7 @@ impl ProtocolInventory {
             tag: Some(outbound.tag.clone()),
             native,
             direct: false,
+            relay: Vec::new(),
         }))
     }
 }

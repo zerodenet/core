@@ -25,8 +25,17 @@ impl Provider {
             .as_ref()
             .map_err(|source| std::io::Error::other(source.clone()))?;
         let role = node.slot.role_id();
+        let path = if node.relay.is_empty() {
+            vec![(node.tag.as_deref(), role)]
+        } else {
+            node.relay
+                .iter()
+                .map(|hop| (hop.tag.as_deref(), hop.slot.role_id()))
+                .collect()
+        };
+        let tags = path.iter().map(|(tag, _)| *tag).collect::<Vec<_>>();
         let selected = selections
-            .chosen(&[node.tag.as_deref()])
+            .chosen(&tags)
             .ok_or_else(|| std::io::Error::other("DNS datagram selection cannot be captured"))?;
         let admission = node
             .slot
@@ -34,13 +43,17 @@ impl Provider {
             .ok_or_else(|| std::io::Error::other("DNS datagram owner is not admitted"))?;
         let generation = NetworkGeneration(self.egress.generation());
         let binding = UpstreamBinding {
-            prefix: vec![role],
+            prefix: path.iter().map(|(_, role)| *role).collect(),
             dial: node.slot.dial.clone(),
             network_generation: generation,
         };
         let root_binding = UpstreamBinding {
             prefix: vec![],
-            ..binding.clone()
+            dial: node
+                .relay
+                .first()
+                .map_or_else(|| binding.dial.clone(), |root| root.dial.clone()),
+            network_generation: generation,
         };
         let grants = self
             .roots
@@ -62,7 +75,7 @@ impl Provider {
             .ok_or_else(|| {
                 std::io::Error::other("DNS Datagram actual endpoint/dial was not declared")
             })?;
-        let network = node.tag.as_deref().map_or_else(
+        let network = tags[0].map_or_else(
             || execution.upstream(),
             |tag| execution.upstream_observed(tag),
         );
@@ -70,13 +83,25 @@ impl Provider {
             .native
             .as_ref()
             .map(|(ordinal, endpoint)| (*ordinal, endpoint.clone()));
+        let root_endpoint = node.relay.first().and_then(|root| root.endpoint.clone());
+        let root_grants = if let Some(endpoint) = &root_endpoint {
+            self.roots
+                .iter()
+                .find(|(root, _)| {
+                    !root.datagram && root.endpoint == *endpoint && root.dial == root_binding.dial
+                })
+                .map(|(_, grants)| grants)
+                .ok_or_else(|| std::io::Error::other("DNS Datagram relay root was not declared"))?
+        } else {
+            grants
+        };
         let root = root::Root::new(
             network,
-            native
-                .as_ref()
-                .map_or_else(|| destination(peer), |(_, endpoint)| endpoint.clone()),
+            root_endpoint
+                .or_else(|| native.as_ref().map(|(_, endpoint)| endpoint.clone()))
+                .unwrap_or_else(|| destination(peer)),
             root_binding.clone(),
-            grants.clone(),
+            root_grants.clone(),
             self.budget.clone(),
             self.users.clone(),
             self.pending.clone(),
@@ -88,7 +113,9 @@ impl Provider {
             self.cleanup_receiver(),
         )
         .map_err(std::io::Error::other)?;
-        let root = Arc::new(if node.direct {
+        let root = Arc::new(if !node.relay.is_empty() {
+            root
+        } else if node.direct {
             root.with_direct_endpoint(Some(destination(peer)))
         } else {
             match native {
@@ -128,7 +155,7 @@ impl Provider {
                 &destination(peer),
                 &node,
                 &call,
-                UpstreamTransport::new(root_binding, root),
+                root.query_transport(),
             )
             .await
             .map_err(std::io::Error::other)?;
