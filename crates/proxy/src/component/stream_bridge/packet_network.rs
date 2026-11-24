@@ -396,6 +396,40 @@ impl ServicePacketOpener {
     }
 }
 impl UpstreamOpener for ServicePacketOpener {
+    fn select_background_carrier_observed(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+        waiting: zero_platform_tokio::contract::network::PendingCarrierObserver,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        Box::pin(async move {
+            if binding.as_ref() != Some(&self.binding)
+                || !self.binding.prefix.is_empty()
+                || self.binding.network_generation.0 != self.services.network_generation()
+                || self.call.session.is_some()
+                || call.session.is_some()
+                || self.call.cancel.is_cancelled()
+                || call.cancel.is_cancelled()
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "Packet background reselection changed its actual root or caller",
+                ));
+            }
+            // An endpoint-free root still carries the actual setup observer
+            // when its selected prefix borrows a Stream from the live Source.
+            Ok(UpstreamTransport::new(
+                self.binding.clone(),
+                Arc::new(Self {
+                    services: self.services.clone(),
+                    binding: self.binding.clone(),
+                    pending: Some(waiting),
+                    call,
+                    _caller_owner: self._caller_owner.clone(),
+                }),
+            ))
+        })
+    }
     fn packet_caller(
         &self,
         binding: &UpstreamBinding,
