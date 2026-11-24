@@ -153,6 +153,8 @@ impl InboundOwnerRegistry {
             installed: InboundInstallContext {
                 entry: owner.clone(),
                 protocols: protocols.clone(),
+                #[cfg(feature = "datagram-route-runtime")]
+                native_datagram: None,
             },
             owner,
             recipe,

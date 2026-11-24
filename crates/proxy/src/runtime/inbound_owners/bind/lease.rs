@@ -233,6 +233,11 @@ impl LeasedInbound {
             InboundInstallContext {
                 entry: self.lease.owner.clone(),
                 protocols: self.lease.protocols.clone(),
+                #[cfg(feature = "datagram-route-runtime")]
+                native_datagram: match self.lease.grant.as_ref() {
+                    native::NativeBindGrant::Datagram(grant) => Some(Arc::downgrade(grant)),
+                    _ => None,
+                },
             },
         ))
     }

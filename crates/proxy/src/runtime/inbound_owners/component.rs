@@ -181,6 +181,8 @@ impl InboundInstallContext {
             };
             Some(PeerSourceContext {
                 identity: Arc::default(),
+                #[cfg(feature = "datagram-route-runtime")]
+                primary: None,
                 limits: DatagramPeerLimits {
                     max_peers: *max_associations,
                     packets_per_peer: std::num::NonZeroUsize::new(1).unwrap(),
@@ -212,6 +214,8 @@ impl InboundInstallContext {
             Some(PeerSourceContext {
                 carrier: None,
                 identity,
+                #[cfg(feature = "datagram-route-runtime")]
+                primary: self.native_datagram.clone(),
                 limits: *limits,
                 peers: self
                     .entry
@@ -228,6 +232,8 @@ impl InboundInstallContext {
                 ) => Some(PeerSourceContext {
                     carrier: None,
                     identity: udp.identity.clone(),
+                    #[cfg(feature = "datagram-route-runtime")]
+                    primary: None,
                     limits: *limits,
                     peers: self
                         .entry

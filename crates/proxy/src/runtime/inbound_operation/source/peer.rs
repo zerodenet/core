@@ -38,6 +38,8 @@ pub(super) fn spawn(
         .ok_or_else(|| std::io::Error::other("missing actual peer Scope"))?;
     let registrar = host.peer_registrar();
     let structured = context.limits.max_tasks_per_peer.get() > 1;
+    #[cfg(feature = "datagram-route-runtime")]
+    let primary_origin = context.primary_origin(host);
     let accepted = context.peers.spawn_bound(host, move |binding| {
         let resources = group.resource_context(binding.clone(), ingress);
         async move {
@@ -58,13 +60,27 @@ pub(super) fn spawn(
                         |_| {
                             binding.install_scope(scope.clone())?;
                             Ok((
-                                zero_platform_tokio::contract::lifecycle::erase_lifecycle(scope),
+                                zero_platform_tokio::contract::lifecycle::erase_lifecycle(
+                                    scope.clone(),
+                                ),
                                 (),
                             ))
                         },
                     )
                     .await
                     .map_err(std::io::Error::other)?;
+                #[cfg(feature = "datagram-route-runtime")]
+                if let Some(primary_origin) = primary_origin {
+                    match primary_origin.await {
+                        Ok(original) => scope
+                            .retain_carrier_origin(original)
+                            .map_err(std::io::Error::other)?,
+                        Err(error) if stopped.is_cancelled() && error.reason == Reason::Revoked => {
+                            return Ok(());
+                        }
+                        Err(error) => return Err(std::io::Error::other(error).into()),
+                    }
+                }
                 route
                     .with_accepted_tasks(tasks)
                     .map_err(std::io::Error::other)?

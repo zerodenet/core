@@ -89,6 +89,8 @@ impl std::fmt::Debug for InboundOwnerRegistry {
 pub(crate) struct InboundInstallContext {
     entry: Arc<InboundOwner>,
     protocols: ProtocolInventory,
+    #[cfg(feature = "datagram-route-runtime")]
+    native_datagram: Option<std::sync::Weak<bind::native::udp::NativeDatagramGrant>>,
 }
 impl InboundInstallContext {
     #[cfg(feature = "raw-ip-runtime")]
@@ -223,6 +225,8 @@ impl InboundOwnerRegistry {
         Ok(InboundInstallContext {
             entry,
             protocols: protocols.clone(),
+            #[cfg(feature = "datagram-route-runtime")]
+            native_datagram: None,
         })
     }
     pub(crate) fn owner(&self, tag: &str) -> Option<Arc<InboundOwner>> {

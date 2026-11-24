@@ -1,5 +1,7 @@
 //! The original UDP owner is installed before start; it binds the actual TCP endpoint.
 use super::*;
+#[cfg(feature = "datagram-route-runtime")]
+use std::future::Future;
 use std::sync::OnceLock;
 use zero_platform_tokio::{
     contract::component::DatagramPeerLimits,
@@ -120,6 +122,37 @@ pub(in crate::runtime) struct PeerSourceContext {
     pub identity: Arc<OnceLock<DatagramListenerIdentity>>,
     pub limits: DatagramPeerLimits,
     pub peers: Arc<super::super::InboundPeerTasks>,
+    #[cfg(feature = "datagram-route-runtime")]
+    pub(super) primary:
+        Option<std::sync::Weak<super::super::bind::native::udp::NativeDatagramGrant>>,
+}
+#[cfg(feature = "datagram-route-runtime")]
+impl PeerSourceContext {
+    pub(in crate::runtime) fn primary_origin(
+        &self,
+        host: &super::super::InboundTaskAccess,
+    ) -> Option<
+        impl Future<
+                Output = Result<
+                    zero_platform_tokio::controlled_carrier::CarrierOrigin,
+                    ChannelError,
+                >,
+            > + Send
+            + 'static,
+    > {
+        let grant = self.primary.as_ref()?.clone();
+        let listener = self.identity.clone();
+        let host = host.clone();
+        Some(async move {
+            let grant = grant.upgrade().ok_or_else(denied)?;
+            let listener = listener.get().ok_or_else(denied)?;
+            // The primary Source's Main already polled the actual UDP receive
+            // that admitted this peer. The peer task itself does not own the wire.
+            let witness = host.source_main_witness().await?;
+            let origin = grant.register_driver(listener, &witness)?;
+            Ok(zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(origin))
+        })
+    }
 }
 #[cfg(test)]
 mod tests;
