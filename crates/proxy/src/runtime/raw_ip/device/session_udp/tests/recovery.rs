@@ -264,11 +264,14 @@ async fn same_source_failed_phase_continues_original_close_then_reuses_one_attem
         )
         .await;
         calls.collect_retired();
-        assert!(calls
+        let pending = calls
             .shutdown(tokio::time::Instant::now() + Duration::from_secs(1))
             .await
-            .unwrap()
-            .is_complete());
+            .unwrap_err();
+        assert!(pending
+            .cleanup_failure_receipt()
+            .is_some_and(|actual| actual.same_receipt(receipt)));
+        assert!(!calls.cleanup_settled());
         assert_eq!(root.transmit().occupied.frames, 0);
         scope.begin_shutdown();
         controller.write_all(&[2]).await.unwrap();
@@ -291,6 +294,21 @@ async fn same_source_failed_phase_continues_original_close_then_reuses_one_attem
         assert!(healthy_actor.matches_joined(actor_exit.joined()));
         assert_eq!(total.snapshot().charged, 1);
         scope.acknowledge(&actor_exit).unwrap();
+        healthy_actor.wait_registration_released().await;
+        assert!(calls.cleanup_settled());
+        let completed = calls
+            .shutdown(tokio::time::Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(completed.is_complete());
+        let [failure] = completed.resource_failures.as_slice() else {
+            panic!("original Source failure must remain in the retirement report");
+        };
+        assert_eq!(failure.instance, original.instance());
+        assert!(std::ptr::eq(
+            failure.source.as_ref(),
+            first.retained_source().unwrap().as_ref()
+        ));
         assert_eq!(total.snapshot().charged, 0);
         assert!(original.closed().is_none());
         scope.begin_shutdown();
