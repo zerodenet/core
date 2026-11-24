@@ -74,18 +74,10 @@ pub(super) fn transport(
     Ok(transport)
 }
 impl Pending {
-    fn current_receiver(&self) -> Result<TaskJoinWitness, ChannelError> {
+    fn receiver(&self) -> Result<TaskJoinWitness, ChannelError> {
         // An unjoined initializer uses its original published start gate. A
-        // later cached request is accepted only from this physical original's
-        // installed retained driver, never an arbitrary task in the same Scope.
-        let native = tokio::task::try_id();
-        if self.physical.original.matches_auxiliary(&self.caller)
-            && !self.caller.is_joined()
-            && self
-                .caller
-                .native_task_id()
-                .is_some_and(|id| Some(id) == native)
-        {
+        // cached original uses its installed retained driver.
+        if self.physical.original.matches_auxiliary(&self.caller) && !self.caller.is_joined() {
             return Ok(self.caller.clone());
         }
         if let Some(driver) = self.physical.original.retained_driver() {
@@ -94,10 +86,6 @@ impl Pending {
                     .adoption()
                     .is_some_and(|same| same.same_slot(&self.physical.original))
                 && !driver.driver().is_joined()
-                && driver
-                    .driver()
-                    .native_task_id()
-                    .is_some_and(|id| Some(id) == native)
             {
                 return Ok(driver.driver().clone());
             }
@@ -109,14 +97,14 @@ impl Pending {
         ))
     }
 
-    fn check(&self, binding: &UpstreamBinding) -> Result<(), ChannelError> {
+    fn check(&self, binding: &UpstreamBinding) -> Result<TaskJoinWitness, ChannelError> {
         let bound = self
             .owner
             .grants
             .registration()
             .bound()
             .ok_or_else(|| error(self.owner.instance, Stage::Prepare, Reason::Revoked))?;
-        let caller = self.current_receiver()?;
+        let caller = self.receiver()?;
         if binding != &self.physical.binding
             || !self.owner.ready()
             || self.call.cancel.is_cancelled()
@@ -131,9 +119,39 @@ impl Pending {
                 Reason::StalePlan,
             ));
         }
-        Ok(())
+        Ok(caller)
+    }
+
+    fn check_current(&self, binding: &UpstreamBinding) -> Result<TaskJoinWitness, ChannelError> {
+        let receiver = self.check(binding)?;
+        if !is_current(&receiver) {
+            return Err(error(
+                self.owner.instance,
+                Stage::Prepare,
+                Reason::StalePlan,
+            ));
+        }
+        Ok(receiver)
+    }
+
+    fn current_child_initializer(&self) -> bool {
+        let pending = self.physical.pending.lock().unwrap().clone();
+        pending.iter().any(|child| {
+            child.initializer_registration().is_some_and(|caller| {
+                is_current(&caller)
+                    && !caller.is_joined()
+                    && caller.scope_identity().resource_open()
+            })
+        })
     }
 }
+
+fn is_current(caller: &TaskJoinWitness) -> bool {
+    caller
+        .native_task_id()
+        .is_some_and(|id| Some(id) == tokio::task::try_id())
+}
+
 impl UpstreamOpener for Pending {
     fn protocol_original_observer(&self) -> Option<PendingCarrierObserver> {
         self.physical.protocols.as_ref()?;
@@ -147,8 +165,7 @@ impl UpstreamOpener for Pending {
         binding: &UpstreamBinding,
         original: zero_platform_tokio::controlled_carrier::ProtocolOriginal,
     ) -> Result<(), ChannelError> {
-        self.check(binding)?;
-        self.current_receiver()?;
+        self.check_current(binding)?;
         if !self
             .anchor
             .get()
@@ -174,7 +191,7 @@ impl UpstreamOpener for Pending {
         true
     }
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
-        self.check(binding).ok().map(|_| self.limit)
+        self.check_current(binding).ok().map(|_| self.limit)
     }
     fn packet_caller(
         &self,
@@ -182,8 +199,7 @@ impl UpstreamOpener for Pending {
         identity: &RequestIdentity,
         call: &CarrierContext,
     ) -> Result<TaskJoinWitness, ChannelError> {
-        self.check(binding)?;
-        self.current_receiver()?;
+        let receiver = self.check_current(binding)?;
         if call.session.is_some()
             || call.deadline != self.call.deadline
             || call.cancel.is_cancelled()
@@ -195,32 +211,47 @@ impl UpstreamOpener for Pending {
                 Reason::StalePlan,
             ));
         }
-        self.current_receiver()
+        Ok(receiver)
     }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,
         adoption: CarrierAdoption,
     ) -> Result<(), ChannelError> {
-        self.check(binding)?;
+        // A nested pool registers its donor from the initializer of a slot
+        // this receiver already retained. Only this observation crosses tasks;
+        // the receiver's own caller and I/O permissions remain task-bound.
+        let receiver = self.check(binding)?;
+        if !is_current(&receiver) && !self.current_child_initializer() {
+            return Err(error(
+                self.owner.instance,
+                Stage::Prepare,
+                Reason::StalePlan,
+            ));
+        }
         self.owner
             .upstream
             .validate_pending_carrier(binding, &adoption)?;
-        if let Some(waiting) = &self.waiting {
-            waiting.retain(adoption.clone())?;
-        }
         self.physical.release_installed_pending();
-        let mut pending = self.physical.pending.lock().unwrap();
-        if pending.iter().any(|slot| slot.same_slot(&adoption)) {
-            return Ok(());
+        {
+            let mut pending = self.physical.pending.lock().unwrap();
+            if !pending.iter().any(|slot| slot.same_slot(&adoption)) {
+                if pending.len() >= self.limit {
+                    return Err(error(self.owner.instance, Stage::Prepare, Reason::Capacity));
+                }
+                pending.try_reserve(1).map_err(|source| {
+                    error(self.owner.instance, Stage::Prepare, Reason::Capacity).with_source(source)
+                })?;
+                pending.push(adoption.clone());
+            }
         }
-        if pending.len() >= self.limit {
-            return Err(error(self.owner.instance, Stage::Prepare, Reason::Capacity));
+        // Only preparation has a waiting caller. The installed shared driver
+        // keeps later originals in its own live ledger.
+        if receiver.same_registration(&self.caller) {
+            if let Some(waiting) = &self.waiting {
+                waiting.retain(adoption)?;
+            }
         }
-        pending.try_reserve(1).map_err(|source| {
-            error(self.owner.instance, Stage::Prepare, Reason::Capacity).with_source(source)
-        })?;
-        pending.push(adoption);
         Ok(())
     }
     fn open_stream(

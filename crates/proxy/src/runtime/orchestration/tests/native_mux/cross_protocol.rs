@@ -38,11 +38,21 @@ async fn nested_cross_protocol_pools_keep_one_owner_despite_unselected_compatibi
             echo(&mut stream).await;
             let mut originals = Vec::new();
             let mut drivers = Vec::new();
+            let mut donors = Vec::new();
             for (index, owner) in owners.iter().enumerate() {
                 let observed = owner.observe().unwrap();
                 assert_eq!(observed.slots().len(), 1, "same actual {index} pool");
-                originals.push(observed.slots()[0].original().clone());
-                drivers.push(observed.slots()[0].driver().unwrap().1.clone());
+                let slot = &observed.slots()[0];
+                originals.push(slot.original().clone());
+                drivers.push(slot.driver().unwrap().1.clone());
+                assert_eq!(slot.native().is_some(), index == 0);
+                let setup = slot.auxiliary().unwrap();
+                let joined = setup.try_joined().unwrap();
+                assert!(setup.matches_joined(&joined));
+                assert!(joined.registration_released());
+                if index > 0 {
+                    donors.push(slot.borrowed_origin().unwrap().clone());
+                }
                 assert_eq!(servers[index].fixture.connections(), 1);
             }
             drop(stream);
@@ -52,7 +62,10 @@ async fn nested_cross_protocol_pools_keep_one_owner_despite_unselected_compatibi
             for server in &servers { assert_eq!(server.fixture.connections(), 1); }
             drop(reused);
             proxy.protocols.shutdown_components(deadline()).await.unwrap();
-            for original in originals { assert!(original.matches_closed(&original.closed().unwrap())); }
+            for original in &originals { assert!(original.matches_closed(&original.closed().unwrap())); }
+            for (original, donor) in originals.iter().zip(donors) {
+                assert!(original.matches_closed(&donor.closed().unwrap()));
+            }
             for driver in drivers { assert!(driver.matches_joined(&driver.try_joined().unwrap())); }
             for owner in owners {
                 assert!(owner.closed().unwrap().matches(&owner));
