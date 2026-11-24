@@ -206,10 +206,15 @@ async fn completed_h1_dispatcher_retains_original_io_until_actual_pending_work_r
                 .collect()
                 .await
                 .unwrap();
-            drop(sender);
             // Hyper has actually shut down its HTTP wire. Its original IO and
             // independent target read must still belong to this same driver.
             observed.wait_for(|shutdown| *shutdown).await.unwrap();
+            let carrier::Sender::Http1(mut sender) = sender else {
+                panic!("expected the original HTTP/1 request sender");
+            };
+            // A later request must observe closure while the original driver
+            // is still awaiting the separate logical socket below.
+            assert!(sender.ready().await.is_err());
             assert!(waiting.load(Ordering::Acquire));
             assert!(!dropped.load(Ordering::Acquire));
             assert!(!finished.load(Ordering::Acquire));

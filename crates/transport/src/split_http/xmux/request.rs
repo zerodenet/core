@@ -102,7 +102,8 @@ impl Sender {
         // guard only pins the shared driver; other logical streams use clones.
         Ok(response.map(|body| {
             body.guarded(move |complete| {
-                if complete && matches!(connection.sender, carrier::Sender::Http1(_)) {
+                if complete && !streaming && matches!(connection.sender, carrier::Sender::Http1(_))
+                {
                     group.connections.recycle(connection);
                 }
             })

@@ -53,7 +53,14 @@ impl hyper::body::Body for OwnedGroupBody {
         if matches!(result, Poll::Ready(None)) {
             drop(self.inner.inner.take());
             if let Some(connection) = self.inner.connection.take() {
-                if matches!(connection.sender, client::carrier::Sender::Http1(_)) {
+                // Streaming HTTP/1 requests already sent Connection: close.
+                // Body EOF can arrive before Hyper publishes dispatch closure.
+                let reusable = self
+                    .inner
+                    .response
+                    .as_ref()
+                    .is_some_and(|response| !response.is_streaming());
+                if reusable && matches!(connection.sender, client::carrier::Sender::Http1(_)) {
                     self.inner.group.connections.recycle(connection);
                 } else {
                     drop(connection);

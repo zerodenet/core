@@ -129,6 +129,10 @@ impl ResponseUse {
         group.responses.fetch_add(1, Ordering::AcqRel);
         Self { group, streaming }
     }
+
+    pub(super) fn is_streaming(&self) -> bool {
+        self.streaming
+    }
 }
 impl Drop for ResponseUse {
     fn drop(&mut self) {

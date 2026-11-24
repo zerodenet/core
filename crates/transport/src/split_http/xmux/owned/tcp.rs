@@ -29,7 +29,6 @@ pub enum TcpVersion {
     Http1,
     Http2 { keepalive: i64 },
 }
-type Driver = std::pin::Pin<Box<dyn std::future::Future<Output = hyper::Result<()>> + Send>>;
 type Sender = oneshot::Sender<io::Result<carrier::Sender>>;
 #[derive(Clone)]
 pub struct PreparedXhttpTcp {

@@ -1,5 +1,28 @@
 //! Same actual connection future and original delegate drain.
 use super::*;
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+type Http1 = hyper::client::conn::http1::Connection<TokioIo<TcpRelayStream>, Body>;
+type Http2 =
+    hyper::client::conn::http2::Connection<TokioIo<TcpRelayStream>, Body, executor::Executor>;
+
+enum Driver {
+    Http1(Box<Http1>),
+    Http2(Box<Http2>),
+}
+impl Driver {
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<hyper::Result<()>> {
+        match self {
+            Self::Http1(driver) => Pin::new(&mut **driver).poll(cx),
+            Self::Http2(driver) => Pin::new(&mut **driver).poll(cx),
+        }
+    }
+}
+
 struct ConnectionDriver {
     inner: Option<Driver>,
     _memory: PacketMetadataCredit,
@@ -25,7 +48,10 @@ pub(super) async fn run(
                 .map_err(|source| {
                     failure(Stage::Handshake, Reason::Protocol).with_source(source)
                 })?;
-            (carrier::Sender::Http1(sender), Box::pin(driver))
+            (
+                carrier::Sender::Http1(sender),
+                Driver::Http1(Box::new(driver)),
+            )
         }
         TcpVersion::Http2 { keepalive } => {
             let executor = executor::Executor(PacketMetadataArc::downgrade(&state));
@@ -56,7 +82,10 @@ pub(super) async fn run(
                 .map_err(|source| {
                     failure(Stage::Handshake, Reason::Protocol).with_source(source)
                 })?;
-            (carrier::Sender::Http2(sender), Box::pin(driver))
+            (
+                carrier::Sender::Http2(sender),
+                Driver::Http2(Box::new(driver)),
+            )
         }
     };
     // Keep future and ticket in explicit field destruction order on every
@@ -86,22 +115,20 @@ pub(super) async fn run(
                 returning = true;
                 state.runtime.ledger.request_logical_return();
             },
-            result=driver.inner.as_mut().expect("live original HTTP driver").as_mut()=>break result,
+            result=std::future::poll_fn(|cx| driver.inner.as_mut().expect("live original HTTP driver").poll(cx))=>break result,
             _=state.runtime.run_work()=>return Ok(()),
             _=&mut changed=>{},
         }
     };
-    // A completed H2 dispatcher still holds Hyper's conn_drop_ref. Release
-    // that completed future before awaiting its actual wire delegate; keeping
-    // it here makes ConnTask wait for this very drain to release its last
-    // sender. H1 still holds the actual IO/loan, so retain its completed future
-    // until its logical work returns, including work that rotated to another
-    // physical connection. Only H2 delegates own the actual wire separately.
-    // Dropping the dispatcher only requests H2 shutdown: the same ledger must
-    // still poll every original delegate to completion below.
-    if matches!(version, TcpVersion::Http2 { .. }) {
-        drop(driver.inner.take());
-    }
+    // Release Hyper's completed request dispatch before polling logical work.
+    // H1 senders can otherwise wait on a receiver that will never be polled
+    // again. Keep the extracted original IO/loan through the logical drain.
+    // Dropping the H2 dispatcher releases its conn_drop_ref. The same ledger
+    // still polls its actual wire delegate to completion below.
+    let retained_io = match driver.inner.take().expect("completed original HTTP driver") {
+        Driver::Http1(connection) => Some(connection.into_parts().io),
+        Driver::Http2(_) => None,
+    };
     // A successful H1 connection EOF can belong to a different exchange than
     // the logical work using this driver. Retain the same actual task until
     // that work returns. A real wire failure still cancels affected work and
@@ -120,6 +147,7 @@ pub(super) async fn run(
         }
         tokio::select! {biased;_=state.runtime.run_work()=>break,_=&mut changed=>{}}
     }
+    drop(retained_io);
     drop(driver);
     match result {
         Ok(()) => Ok(()),
