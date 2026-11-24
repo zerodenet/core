@@ -11,6 +11,35 @@ impl zero_traits::WebSocketTransportProfile for Profile {
         Vec::new()
     }
 }
+
+#[tokio::test]
+async fn websocket_upgrade_flushes_the_request_on_a_buffered_carrier() {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let (client, server) = tokio::io::duplex(8192);
+        let client = async move {
+            let mut stream = zero_transport::ws::connect_ws(
+                tokio::io::BufStream::new(client),
+                &Profile { path: "/ws" },
+                "localhost",
+                80,
+            )
+            .await
+            .unwrap();
+            stream.write_all(b"wire").await.unwrap();
+            stream.flush().await.unwrap();
+        };
+        let server = async move {
+            let mut stream = zero_transport::ws::accept_ws(server, "/ws").await.unwrap();
+            let mut data = [0; 4];
+            stream.read_exact(&mut data).await.unwrap();
+            assert_eq!(&data, b"wire");
+        };
+        tokio::join!(client, server);
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn websocket_early_data_and_oversized_first_write_preserve_order() {
     for size in [12, 2048, 4096] {

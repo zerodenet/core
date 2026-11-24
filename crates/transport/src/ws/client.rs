@@ -8,11 +8,12 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadBuf};
 use tokio_tungstenite::tungstenite::http::Request;
 
-type Handshake<S> = Pin<Box<dyn Future<Output = io::Result<WebSocketSocket<S>>> + Send + Sync>>;
+type ClientSocket<S> = WebSocketSocket<HandshakeIo<S>>;
+type Handshake<S> = Pin<Box<dyn Future<Output = io::Result<ClientSocket<S>>> + Send + Sync>>;
 pub struct WebSocketClient<S> {
     initial: Option<(S, Request<()>, u32)>,
     pending: Option<Handshake<S>>,
-    socket: Option<WebSocketSocket<S>>,
+    socket: Option<ClientSocket<S>>,
     failed: bool,
     heartbeat_period_secs: u32,
 }
@@ -41,6 +42,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> WebSocketClient<
                 );
             }
             self.pending = Some(Box::pin(async move {
+                let stream = HandshakeIo {
+                    inner: stream,
+                    flush_before_read: true,
+                };
                 let (stream, _) = tokio_tungstenite::client_async(request, stream)
                     .await
                     .map_err(io::Error::other)?;
@@ -68,6 +73,47 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> WebSocketClient<
             self.pending = None;
         }
         Poll::Ready(Ok(()))
+    }
+}
+
+struct HandshakeIo<S> {
+    inner: S,
+    flush_before_read: bool,
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for HandshakeIo<S> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let mut inner = Pin::new(&mut this.inner);
+        // Tungstenite goes straight from writing the Upgrade request to
+        // reading the response. Flush that request on a buffered carrier.
+        if this.flush_before_read {
+            ready!(inner.as_mut().poll_flush(cx))?;
+            this.flush_before_read = false;
+        }
+        inner.poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for HandshakeIo<S> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
     }
 }
 impl<S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> AsyncRead for WebSocketClient<S> {
