@@ -7,9 +7,9 @@ use zero_config::OutboundProtocolConfig;
 use zero_core::component::ResourceGeneration;
 use zero_platform_tokio::contract::component::RoleKind;
 
-/// A routing edit keeps the material already loaded from the same source.
+/// A routing or DNS H2 capacity edit keeps material from the same source.
 /// A fresh apply with identical settings can still refresh files at the same path.
-fn routing_only_change(previous: &RuntimeConfig, candidate: &RuntimeConfig) -> bool {
+fn retains_file_material(previous: &RuntimeConfig, candidate: &RuntimeConfig) -> bool {
     let RuntimeConfig {
         schema_version,
         endpoints,
@@ -22,15 +22,29 @@ fn routing_only_change(previous: &RuntimeConfig, candidate: &RuntimeConfig) -> b
         api,
         source_dir,
     } = candidate;
-    (previous.route != *route || previous.outbound_groups != *outbound_groups)
-        && previous.schema_version == *schema_version
+    let same_file_inputs = previous.schema_version == *schema_version
         && previous.endpoints == *endpoints
         && previous.inbounds == *inbounds
         && previous.outbounds == *outbounds
-        && previous.runtime == *runtime
         && previous.mode == *mode
         && previous.api == *api
-        && previous.source_dir == *source_dir
+        && previous.source_dir == *source_dir;
+    if !same_file_inputs {
+        return false;
+    }
+    let routing_changed = previous.route != *route || previous.outbound_groups != *outbound_groups;
+    if previous.runtime == *runtime {
+        return routing_changed;
+    }
+    if routing_changed
+        || previous.runtime.effective_native_dns_max_h2_drivers()
+            == runtime.effective_native_dns_max_h2_drivers()
+    {
+        return false;
+    }
+    let mut prior_runtime = previous.runtime.clone();
+    prior_runtime.native_dns_max_h2_drivers = runtime.native_dns_max_h2_drivers;
+    prior_runtime == *runtime
 }
 
 impl ComponentCatalog {
@@ -201,7 +215,7 @@ impl ComponentCatalog {
             .with_primary_factories(self.factories())
             .with_previous_named(previous.map(|(_, plan)| &plan.outbounds))
             .with_same_source_as_previous(previous.is_some_and(|(source, _)| {
-                std::ptr::eq(config, source.as_ref()) || routing_only_change(source, config)
+                std::ptr::eq(config, source.as_ref()) || retains_file_material(source, config)
             }))
             .with_previous_slots(
                 previous
