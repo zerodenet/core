@@ -262,6 +262,11 @@ async fn receive_packet(relay: &UdpSocket) {
 
 async fn accept_association(listener: &TcpListener, relay_port: u16) -> TcpStream {
     let (mut stream, _) = listener.accept().await.unwrap();
+    complete_association(&mut stream, relay_port).await;
+    stream
+}
+
+async fn complete_association(stream: &mut TcpStream, relay_port: u16) {
     let mut greeting = [0; 3];
     stream.read_exact(&mut greeting).await.unwrap();
     assert_eq!(greeting, [5, 1, 0]);
@@ -284,7 +289,6 @@ async fn accept_association(listener: &TcpListener, relay_port: u16) -> TcpStrea
         ])
         .await
         .unwrap();
-    stream
 }
 
 #[path = "fixtures/replacement.rs"]

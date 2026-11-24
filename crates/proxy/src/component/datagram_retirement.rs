@@ -66,6 +66,29 @@ impl std::fmt::Debug for RetiredDatagrams {
     }
 }
 impl RetiredDatagrams {
+    #[cfg(all(test, feature = "socks5"))]
+    pub(crate) fn hold_single_active_controller_for_test(
+        &self,
+    ) -> tokio::sync::OwnedMutexGuard<
+        Option<zero_platform_tokio::contract::lifecycle::BoxChannelControl>,
+    > {
+        let mut controllers = self.entries().into_iter().filter_map(|(_, entry)| {
+            let entry = entry.lock().expect("Datagram entry poisoned");
+            if entry.active {
+                entry.control.clone()
+            } else {
+                None
+            }
+        });
+        let actual = controllers.next().expect("installed Datagram controller");
+        assert!(controllers.next().is_none(), "one active association");
+        let guard = actual
+            .try_lock_owned()
+            .expect("unborrowed original controller");
+        assert!(guard.is_some(), "the original control is still installed");
+        guard
+    }
+
     pub(crate) fn capacity(&self) -> usize {
         self.capacity.get()
     }
