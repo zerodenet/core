@@ -18,9 +18,13 @@ async fn remote(protocol: serde_json::Value) -> (crate::Proxy, crate::RunningPro
     let endpoint = *source.original_listener_address.get().unwrap();
     (proxy, running, endpoint)
 }
-fn physical(
-    proxy: &crate::Proxy,
-) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOriginObservation> {
+struct Original {
+    slot: zero_platform_tokio::controlled_carrier::CarrierOriginObservation,
+    native: bool,
+    donor: Option<zero_platform_tokio::controlled_carrier::CarrierOrigin>,
+}
+
+fn carriers(proxy: &crate::Proxy) -> Vec<Original> {
     let plan = proxy.tcp_runtime_services().components.clone().unwrap();
     ["donor", "receiver", "codec"]
         .into_iter()
@@ -34,7 +38,11 @@ fn physical(
                         .unwrap()
                         .slots()
                         .iter()
-                        .map(|slot| slot.original().clone())
+                        .map(|slot| Original {
+                            slot: slot.original().clone(),
+                            native: slot.native().is_some(),
+                            donor: slot.borrowed_origin().cloned(),
+                        })
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>()
@@ -59,8 +67,7 @@ async fn stream_only_outer_donor_and_codec_tail_deliver_wire_and_retire_original
     .await;
     for linked in [false, true] {
         let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let mut candidate =
-            serde_json::to_value(config(peer.local_addr().unwrap(), None, linked)).unwrap();
+        let mut candidate = active_outer_config(peer.local_addr().unwrap(), linked);
         candidate["outbounds"].as_array_mut().unwrap().extend([
             serde_json::json!({"tag":"donor","protocol":{"type":"vmess","server":"127.0.0.1","port":vmess_endpoint.port(),"id":ID,"cipher":"aes-128-gcm"}}),
             serde_json::json!({"tag":"receiver","protocol":{"type":"vless","server":"127.0.0.1","port":vless_endpoint.port(),"id":ID}}),
@@ -85,9 +92,12 @@ async fn stream_only_outer_donor_and_codec_tail_deliver_wire_and_retire_original
             size, 148,
             "real WireGuard initiation through all three actual protocols"
         );
-        let originals = physical(&proxy);
-        assert!(!originals.is_empty());
-        assert!(originals.iter().all(|origin| origin.closed().is_none()));
+        let originals = carriers(&proxy);
+        assert!(originals.iter().any(|original| original.native));
+        assert!(originals.iter().any(|original| original.donor.is_some()));
+        assert!(originals
+            .iter()
+            .all(|original| original.slot.closed().is_none()));
         let old = devices(&proxy).remove(0);
         let old_workers = worker_census(&old);
         handle(&proxy)
@@ -97,9 +107,17 @@ async fn stream_only_outer_donor_and_codec_tail_deliver_wire_and_retire_original
         joined(&old, &old_workers);
         for original in originals {
             let closed = original
+                .slot
                 .closed()
                 .expect("same original before replacement ACK");
-            assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
+            assert!(original.slot.matches_closed(&closed));
+            assert_eq!(closed.had_native_acquisition(), original.native);
+            if let Some(donor) = &original.donor {
+                let receipt = donor.closed().expect("exact lower carrier retired");
+                assert!(receipt.matches(donor));
+            } else {
+                assert!(closed.had_native_acquisition());
+            }
         }
         running.shutdown().await.unwrap();
     }

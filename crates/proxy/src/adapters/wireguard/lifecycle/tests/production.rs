@@ -46,6 +46,20 @@ fn config(peer: SocketAddr, outer: Option<SocketAddr>, linked: bool) -> RuntimeC
     )
     .unwrap()
 }
+#[cfg(any(
+    feature = "hysteria2",
+    all(feature = "vmess", feature = "vless", feature = "shadowsocks")
+))]
+fn active_outer_config(peer: SocketAddr, linked: bool) -> serde_json::Value {
+    let mut candidate = serde_json::to_value(config(peer, None, linked)).unwrap();
+    if linked {
+        // The linked Source starts as a listener. An explicitly active peer
+        // uses the protocol timer to originate the real initial handshake.
+        candidate["inbounds"][0]["protocol"]["peers"][0]["keepalive_secs"] = 25.into();
+        candidate["outbounds"][0]["protocol"]["peers"][0]["keepalive_secs"] = 25.into();
+    }
+    candidate
+}
 fn handle(proxy: &crate::Proxy) -> crate::ProxyHandle {
     crate::ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),
