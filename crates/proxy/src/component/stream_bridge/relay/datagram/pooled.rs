@@ -10,6 +10,7 @@ use zero_platform_tokio::contract::{
 
 struct Selected {
     upstream: UpstreamTransport,
+    business_session: Option<zero_core::component::SessionId>,
     remote: std::sync::Mutex<Option<std::net::SocketAddr>>,
 }
 impl UpstreamOpener for Selected {
@@ -179,13 +180,20 @@ impl UpstreamOpener for Selected {
         &self,
         binding: &UpstreamBinding,
         endpoint: Destination,
-        call: CarrierContext,
+        mut call: CarrierContext,
     ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
         let valid = binding == self.upstream.binding();
         Box::pin(async move {
             if !valid {
                 return Err(invalid(Reason::StalePlan, "pooled relay binding changed"));
             }
+            if call.session.is_some() && call.session != self.business_session {
+                return Err(invalid(Reason::StalePlan, "relay Datagram caller changed"));
+            }
+            // An ordinary Datagram (for example Browser-labelled VMess)
+            // frames its packets over a Stream from the selected prefix.
+            // Borrow through the association's existing Service context.
+            call.session = None;
             self.upstream.open_stream(endpoint, call).await
         })
     }
@@ -280,6 +288,7 @@ pub(super) async fn open(
     .await?;
     let selected = Arc::new(Selected {
         upstream,
+        business_session: invocation.identity.session(),
         remote: Default::default(),
     });
     let wire = WireTraffic::new(services.outbound_io(tag, zero_api::TrafficPlane::Outer));

@@ -232,37 +232,41 @@ impl ComponentPlan {
         let Some(selected) = self.role_slot(role) else {
             return false;
         };
-        let mut pending = vec![selected.instance_id()];
+        let mut pending = vec![(None, selected.instance_id())];
         let mut seen = std::collections::BTreeSet::new();
-        while let Some(id) = pending.pop() {
-            if !seen.insert(id) {
-                continue;
-            }
+        while let Some((parent, id)) = pending.pop() {
             let Some(slot) = self.order.iter().find(|slot| slot.instance_id() == id) else {
                 return false;
             };
+            // A roleless pool can own the accepted Stream dependency beneath
+            // the selected role (for example a MUX pool's raw Browser owner).
+            // Qualify each Source edge against its actual direct consumer.
+            if parent.is_some_and(|parent| accepted_stream_dependency(parent, slot))
+                || !seen.insert(id)
+            {
+                continue;
+            }
             if slot.accepted_carrier_provider().is_some() {
                 continue;
             }
             // This is only the exact declared same-job pair. Actual endpoint
             // demand still checks the direct dependency, original grant and
             // both started slots through ensure_process_endpoint_use.
-            if process::paired_endpoint(slot.recipe.spec())
+            let qualified = process::paired_endpoint(slot.recipe.spec())
                 || metadata::installed(slot)
-                || cached::installed(slot)
-                || accepted_stream_dependency(&selected, slot)
-            {
-                pending.extend(slot.dependency_instances());
-                continue;
-            }
-            if slot.recipe.spec().resources.iter().any(|resource|!matches!(resource,
+                || cached::installed(slot);
+            if !qualified && slot.recipe.spec().resources.iter().any(|resource|!matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::File {..} |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceDatagram {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..} |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataDatagram {..})
                 && !(matches!(resource, zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })
                     && node_stream_declarations(slot.recipe.spec()).is_some())) {return false;}
-            pending.extend(slot.dependency_instances());
+            pending.extend(
+                slot.dependency_instances()
+                    .iter()
+                    .map(|id| (Some(slot), *id)),
+            );
         }
         true
     }

@@ -44,12 +44,13 @@ async fn browser_prefix_preserves_standard_streams_udp_mux_and_original_retireme
                 let node = plan.configured("node").unwrap();
                 let first_slot=plan.configured("first").unwrap();
                 let first_owners=(0..first_slot.recipe.spec().resources.len()).filter_map(|ordinal|first_slot.original_carrier_owner(ordinal)).collect::<Vec<_>>();
-                let first_originals=first_owners.iter().flat_map(|owner|owner.observe().unwrap().slots().iter().map(|slot|slot.original().clone()).collect::<Vec<_>>()).collect::<Vec<_>>();
+                let mut first_originals=first_owners.iter().flat_map(|owner|owner.observe().unwrap().slots().iter().map(|slot|slot.original().clone()).collect::<Vec<_>>()).collect::<Vec<_>>();
                 assert!(!first_originals.is_empty());
                 assert_eq!(client.proxy.protocols.runtime_host().original_budgets().process.snapshot().charged_jobs,usize::from(plugin));
 
                 let mut retained = Vec::new();
                 if mux {
+                    assert!(plan.stream_dependencies_supported(node.role_id()));
                     let pool = plan.component(node.dependency_instances()[0].component).unwrap();
                     let owner = pool.original_carrier_owner(0).unwrap();
                     let snapshot = owner.observe().unwrap();assert_eq!(snapshot.retained(),1);
@@ -61,7 +62,19 @@ async fn browser_prefix_preserves_standard_streams_udp_mux_and_original_retireme
                     let raw = plan.component(pool.dependency_instances()[0].component).unwrap();
                     assert_eq!(raw.original_carrier_owner(0).unwrap().observe().unwrap().retained(),0,"the later hop never acquires a root Browser original");
                 }
-                if !donor { datagram_exchange(&client).await; }
+                if !donor {
+                    datagram_exchange_observed(&client, || {
+                        if !mux {
+                            let udp_originals = first_owners.iter().flat_map(|owner| {
+                                owner.observe().unwrap().slots().iter()
+                                    .map(|slot| slot.original().clone()).collect::<Vec<_>>()
+                            }).filter(|slot| !first_originals.iter().any(|tcp| tcp.same_original(slot)))
+                                .collect::<Vec<_>>();
+                            assert!(!udp_originals.is_empty(), "UDP borrowed its own actual prefix Stream");
+                            first_originals.extend(udp_originals);
+                        }
+                    }).await;
+                }
                 io.shutdown().await.unwrap();let mut tail=Vec::new();io.read_to_end(&mut tail).await.unwrap();assert_eq!(tail,b"after-eof");drop(io);echo.await.unwrap();
                 let budgets=client.proxy.protocols.runtime_host().original_budgets();client.close().await;
                 for (owner,original,driver) in retained {

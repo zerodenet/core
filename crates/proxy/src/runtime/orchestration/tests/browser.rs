@@ -271,6 +271,9 @@ async fn datagram(client: &Running, trust: rustls::RootCertStore) {
     agent.await.unwrap();
 }
 async fn datagram_exchange(client: &Running) {
+    datagram_exchange_observed(client, || {}).await;
+}
+async fn datagram_exchange_observed(client: &Running, observe: impl FnOnce()) {
     let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let port = target.local_addr().unwrap().port();
     let echo = tokio::spawn(async move {
@@ -306,6 +309,7 @@ async fn datagram_exchange(client: &Running) {
     let mut response = [0; 128];
     let size = peer.recv(&mut response).await.unwrap();
     assert_eq!(&response[..size], packet);
+    observe();
     drop(control);
     echo.await.unwrap();
 }
