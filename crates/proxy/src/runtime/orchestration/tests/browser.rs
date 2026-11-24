@@ -13,7 +13,9 @@ use tokio::{
 };
 use tokio_tungstenite::{
     connect_async,
-    tungstenite::{client::IntoClientRequest, Message},
+    tungstenite::{
+        client::IntoClientRequest, error::ProtocolError, Error as WebSocketError, Message,
+    },
 };
 use zero_platform_tokio::controlled_carrier::{
     CarrierOrigin, CarrierOriginObservation, CarrierOwnerRegistration,
@@ -49,7 +51,10 @@ async fn register(url: &str) -> Agent {
 async fn browser() -> Agent {
     register(&browser_url().await).await
 }
-async fn relay_browser(mut browser: Agent, roots: rustls::RootCertStore) {
+async fn relay_browser(
+    mut browser: Agent,
+    roots: rustls::RootCertStore,
+) -> Result<(), WebSocketError> {
     let task = browser.next().await.unwrap().unwrap().into_text().unwrap();
     let task: serde_json::Value = serde_json::from_str(&task).unwrap();
     assert_eq!(task["method"], "WS");
@@ -93,14 +98,45 @@ async fn relay_browser(mut browser: Agent, roots: rustls::RootCertStore) {
     };
     let (mut remote, _) = tokio_tungstenite::client_async(url, io).await.unwrap();
     browser.send(Message::Text("ok".into())).await.unwrap();
-    loop {
+    let result = loop {
         tokio::select! {
-            frame=browser.next()=>match frame {Some(Ok(Message::Binary(bytes)))=>remote.send(Message::Binary(bytes)).await.unwrap(),Some(Ok(Message::Close(_)))|None=>break,Some(Ok(_))=>{},Some(Err(source))=>panic!("actual browser control failed: {source}")},
-            frame=remote.next()=>match frame {Some(Ok(Message::Binary(bytes)))=>browser.send(Message::Binary(bytes)).await.unwrap(),Some(Ok(Message::Close(_)))|None=>break,Some(Ok(_))=>{},Some(Err(source))=>panic!("actual remote WS failed: {source}")},
+            frame = browser.next() => match frame {
+                Some(Ok(Message::Binary(bytes))) => remote.send(Message::Binary(bytes)).await.unwrap(),
+                Some(Ok(Message::Close(_))) | None => break Ok(()),
+                Some(Ok(_)) => {},
+                Some(Err(error)) => break Err(error),
+            },
+            frame = remote.next() => match frame {
+                Some(Ok(Message::Binary(bytes))) => {
+                    if let Err(error) = browser.send(Message::Binary(bytes)).await {
+                        break Err(error);
+                    }
+                }
+                Some(Ok(Message::Close(_))) | None => break Ok(()),
+                Some(Ok(_)) => {},
+                Some(Err(error)) => panic!("actual remote WS failed: {error}"),
+            },
         }
-    }
+    };
     let _ = browser.close(None).await;
     let _ = remote.close(None).await;
+    result
+}
+
+fn assert_retired_browser_agent(result: Result<(), WebSocketError>, source: &CarrierOrigin) {
+    assert!(source.accepted().unwrap().is_settled());
+    let closed = source.closed().unwrap();
+    assert!(closed.matches(source) && closed.had_native_acquisition());
+    // The Browser Source may revoke its TCP original before the WebSocket Close exchange.
+    match result {
+        Ok(()) | Err(WebSocketError::Protocol(ProtocolError::ResetWithoutClosingHandshake)) => {}
+        Err(WebSocketError::Io(error))
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+            ) => {}
+        Err(error) => panic!("actual browser control failed: {error}"),
+    }
 }
 struct Actual {
     owner: CarrierOwnerRegistration,
@@ -221,8 +257,9 @@ async fn wire(client: &Running, sequence: u8, roots: rustls::RootCertStore) -> A
     io.shutdown().await.unwrap();
     drop(io);
     target.await.unwrap();
-    browser.await.unwrap();
+    let agent = browser.await.unwrap();
     returned(&actual).await;
+    assert_retired_browser_agent(agent, &actual.source);
     actual
 }
 
@@ -267,8 +304,12 @@ async fn vmess_and_trojan_browser_sources_forward_tcp_udp_and_retire_actual_orig
 }
 async fn datagram(client: &Running, trust: rustls::RootCertStore) {
     let agent = tokio::spawn(relay_browser(browser().await, trust));
-    datagram_exchange(client).await;
-    agent.await.unwrap();
+    let mut actual = None;
+    datagram_exchange_observed(client, || actual = Some(capture(client))).await;
+    let actual = actual.unwrap();
+    let agent = agent.await.unwrap();
+    returned(&actual).await;
+    assert_retired_browser_agent(agent, &actual.source);
 }
 async fn datagram_exchange(client: &Running) {
     datagram_exchange_observed(client, || {}).await;

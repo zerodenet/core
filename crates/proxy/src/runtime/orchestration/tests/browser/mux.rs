@@ -65,13 +65,13 @@ async fn browser_mux_reuses_one_physical_original_for_two_streams_and_consumes_e
             assert_eq!(pool_owner.observe().unwrap().retained(), 1);
             first.shutdown().await.unwrap(); second.shutdown().await.unwrap(); drop(first); drop(second); echo.await.unwrap();
             let budgets = client.proxy.protocols.runtime_host().original_budgets(); client.close().await;
-            agent.await.unwrap();
+            let agent = agent.await.unwrap();
             assert!(original.matches_closed(&original.closed().unwrap()));
             let joined = driver.try_joined().unwrap(); assert!(driver.matches_joined(&joined));
             assert!(pool_owner.closed().unwrap().matches(&pool_owner)); assert!(raw_owner.closed().unwrap().matches(&raw_owner));
             assert!(raw_original.matches_closed(&raw_original.closed().unwrap()));
             assert!(raw_original.matches_closed(&borrowed.closed().unwrap()));
-            assert!(source.accepted().unwrap().is_settled()); assert!(source.closed().unwrap().matches(&source));
+            assert_retired_browser_agent(agent, &source);
             assert_eq!(budgets.carrier.snapshot().charged, 0);
             remote.close().await;
         }
