@@ -67,7 +67,7 @@ pub async fn accept_grpc_with_profile_scoped<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let incoming = accept_grpc_connection_scoped(stream, profile, caller)?;
+    let incoming = accept_scoped(stream, profile, caller, true)?;
     let mut stream = incoming
         .accept()
         .await
@@ -85,6 +85,18 @@ pub fn accept_grpc_connection_scoped<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    accept_scoped(stream, profile, caller, false)
+}
+
+fn accept_scoped<S>(
+    stream: S,
+    profile: &(impl zero_traits::GrpcTransportProfile + ?Sized),
+    caller: &AcceptedCaller,
+    single_stream: bool,
+) -> Result<GrpcIncoming, RuntimeError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     require_grpc_service_names(profile.service_names(), "inbound")?;
     let profile = OwnedGrpcProfile::from_profile(profile);
     let cancel = CancellationToken::new();
@@ -94,7 +106,9 @@ where
     let (tx, rx) = mpsc::channel(64);
     caller
         .spawn(TaskClass::Auxiliary, move |_| async move {
-            let result = drive(stream, profile, tx, stopping).await.map_err(Arc::new);
+            let result = drive(stream, profile, tx, stopping, single_stream)
+                .await
+                .map_err(Arc::new);
             let _ = actual.result.set(result.clone());
             actual.read.wake();
             actual.write.wake();
@@ -112,6 +126,7 @@ async fn drive<S>(
     profile: OwnedGrpcProfile,
     tx: mpsc::Sender<GrpcStream>,
     cancel: CancellationToken,
+    single_stream: bool,
 ) -> Result<(), ChannelError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -125,7 +140,7 @@ where
         flush: crate::native_flush::NativeFlush::new(flush.clone()),
     };
     let mut builder = h2::server::Builder::new();
-    builder.max_concurrent_streams(1024);
+    builder.max_concurrent_streams(if single_stream { 1 } else { 1024 });
     let mut conn = tokio::select! { biased;
         _=cancel.cancelled()=>return Ok(()),
         result=builder.handshake(io)=>result.map_err(failure)?,
@@ -136,6 +151,7 @@ where
     tokio::pin!(alive);
     let mut io_jobs = FuturesUnordered::<BoxFuture<'static, ()>>::new();
     let mut retiring = false;
+    let mut admitted = false;
     loop {
         let incoming = tokio::select! { biased;
             _=cancel.cancelled(), if !retiring => {
@@ -175,7 +191,7 @@ where
             }
         };
         let allowed = options::matches(&profile, &request);
-        if !allowed || tx.capacity() == 0 || io_jobs.len() >= 130 {
+        if !allowed || (single_stream && admitted) || tx.capacity() == 0 || io_jobs.len() >= 130 {
             let response = Response::builder()
                 .status(200)
                 .header("content-type", "application/grpc")
@@ -223,6 +239,6 @@ where
         active.fetch_add(1, Ordering::Relaxed);
         stream.active = Some(active.clone());
         // A pending stream never blocks the original task from driving H2 and existing hunk I/O.
-        let _ = tx.try_send(stream);
+        admitted |= tx.try_send(stream).is_ok();
     }
 }
