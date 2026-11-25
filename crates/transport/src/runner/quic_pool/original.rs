@@ -1,20 +1,23 @@
 //! The same authenticated pool retains each pre-delivery native original.
 //! A waiting caller observes custody; it never becomes the pool's IO owner.
+
 use super::*;
 use zero_platform_tokio::{
     contract::{lifecycle::DynChannelControl, BoxFuture, CancellationToken},
     controlled_datagram::metadata_pool::MetadataPoolPreparation,
 };
 
-struct Control {
-    entry: Weak<Entry>,
+struct Control<P: QuicPoolProtocol> {
+    entry: Weak<Entry<P>>,
     origin: Arc<OnceLock<MetadataPoolOrigin>>,
     stop: CancellationToken,
 }
-impl DynChannelControl for Control {
+
+impl<P: QuicPoolProtocol> DynChannelControl for Control<P> {
     fn cancel(&self, _: CloseReason) {
         self.stop.cancel();
     }
+
     fn wait_closed(&mut self, _end: Instant) -> BoxFuture<'_, Result<CloseReport, ChannelError>> {
         self.stop.cancel();
         Box::pin(async move {
@@ -29,8 +32,6 @@ impl DynChannelControl for Control {
                 .entry
                 .upgrade()
                 .ok_or_else(|| error(Stage::Close, Reason::Revoked))?;
-            // The original setup task observes this exact stop token. Retain
-            // its exit before waiting for the state it held across native IO.
             *entry.protocol_wait.lock().unwrap() = Some(("setup exit receipt", None, None));
             entry.receive_setup_original().await?;
             *entry.protocol_wait.lock().unwrap() = Some(("entry state", None, None));
@@ -54,17 +55,15 @@ impl DynChannelControl for Control {
                     )
                     .await?;
             }
-            // Only protocol, driver-body and transferred-view cleanup is
-            // reported here. Native closure and real Host ACKs stay separate.
             Ok(CloseReport::default())
         })
     }
 }
 
-impl Generation {
+impl<P: QuicPoolProtocol> QuicPoolGeneration<P> {
     pub(super) fn observe_retained_original(
         &self,
-        state: &EntryState,
+        state: &EntryState<P>,
         profile: usize,
         upstream: &UpstreamTransport,
     ) -> Result<(), ChannelError> {
@@ -82,7 +81,7 @@ impl Generation {
         let original = origin.retained_protocol_original(
             upstream,
             observer.clone(),
-            &self.profiles[profile].endpoint,
+            P::profile_endpoint(&self.profiles[profile]),
             retirement,
         )?;
         observer.retain_protocol_original(original)
@@ -90,8 +89,8 @@ impl Generation {
 
     pub(super) fn prepare_original(
         &self,
-        entry: &Arc<Entry>,
-        state: &mut EntryState,
+        entry: &Arc<Entry<P>>,
+        state: &mut EntryState<P>,
         candidate: &setup::Candidate,
     ) -> Result<Option<MetadataPoolPreparation>, ChannelError> {
         if state.permit.is_some() || state.retirement.is_some() || state.origin.is_some() {
@@ -123,7 +122,7 @@ impl Generation {
             let original = prepared.protocol_original(
                 &candidate.upstream,
                 observer.clone(),
-                &self.profiles[candidate.profile].endpoint,
+                P::profile_endpoint(&self.profiles[candidate.profile]),
                 &retirement,
             )?;
             observer.retain_protocol_original(original)?;
@@ -132,7 +131,7 @@ impl Generation {
     }
 }
 
-impl Entry {
+impl<P: QuicPoolProtocol> Entry<P> {
     pub(super) async fn retire_current_endpoint(&self, end: Instant) -> Result<(), ChannelError> {
         let original = {
             let state = self.state.lock().await;
@@ -143,8 +142,6 @@ impl Entry {
                 .zip(state.tasks.clone())
         };
         if let Some((origin, tasks)) = original {
-            // Never hold Entry state while its Root-held controller needs that
-            // same state. This drives the existing persistent phase inline.
             if !origin.retire_protocol(&tasks, end).await? {
                 return Err(self.close_timeout("original endpoint protocol retirement", None));
             }

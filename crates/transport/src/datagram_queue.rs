@@ -289,14 +289,9 @@ impl AsyncUdpSocket for Socket {
             .native
             .as_ref()
             .map(|link| link.lock().unwrap().maximum_transmit_segments.max(1));
-        let maximum = if self
-            .memory
-            .as_ref()
-            .is_some_and(|memory| memory.individual_datagrams())
-        {
-            Some(1)
-        } else {
-            maximum
+        let maximum = match &self.memory {
+            Some(memory) => maximum.map(|segments| memory.cap_transmit_segments(segments)),
+            None => maximum,
         };
         let max_datagram_bytes = self
             .memory
@@ -414,17 +409,15 @@ impl AsyncUdpSocket for Socket {
         Ok(self.local)
     }
     fn max_transmit_segments(&self) -> usize {
-        if self
-            .memory
-            .as_ref()
-            .is_some_and(|memory| memory.individual_datagrams())
-        {
-            return 1;
-        }
-        self.native
+        let segments = self
+            .native
             .as_ref()
             .and_then(|link| link.lock().unwrap().current)
-            .map_or(1, |caps| caps.transmit_segments.max(1))
+            .map_or(1, |caps| caps.transmit_segments.max(1));
+        match &self.memory {
+            Some(memory) => memory.cap_transmit_segments(segments),
+            None => segments,
+        }
     }
     fn max_receive_segments(&self) -> usize {
         // The actual native worker consumes GRO and retains each complete

@@ -7,6 +7,10 @@ use zero_platform_tokio::controlled_carrier::{
 };
 pub(crate) const RECEIVE_BYTES: usize = 65536;
 pub(crate) const MAX_DATAGRAM_BYTES: usize = 65507;
+// Cap budgeted GSO batches to the 64-segment QUIC ceiling (matching Linux
+// UDP_MAX_SEGMENTS) so Windows Winsock's 512-segment USO limit never starves
+// the shared 256-entry CarrierBufferBudget.
+pub(crate) const MAX_TRANSMIT_SEGMENTS: usize = 64;
 // Backing dies before its original byte credit, including across hop return.
 pub(crate) struct Scratch {
     pub bytes: Vec<u8>,
@@ -116,12 +120,15 @@ fn peak_receive(masked: bool, bytes: usize) -> io::Result<usize> {
         .ok_or_else(|| io::ErrorKind::InvalidInput.into())
 }
 impl Shared {
-    pub fn grow_native(&self, segments: usize) -> io::Result<()> {
-        let segments = if self.individual_datagrams() {
+    pub fn cap_transmit_segments(&self, segments: usize) -> usize {
+        if self.individual_datagrams() {
             1
         } else {
-            segments.max(1)
-        };
+            segments.clamp(1, MAX_TRANSMIT_SEGMENTS)
+        }
+    }
+    pub fn grow_native(&self, segments: usize) -> io::Result<()> {
+        let segments = self.cap_transmit_segments(segments);
         let bytes = self
             .max_transmit_datagram_bytes
             .checked_mul(segments)

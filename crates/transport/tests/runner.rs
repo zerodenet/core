@@ -602,3 +602,287 @@ async fn pooled_role_factory_validates_dependencies_and_drops_weak_resources_on_
     );
     drop(stream_role);
 }
+
+struct StagedCanary {
+    published: Arc<AtomicUsize>,
+}
+
+struct DummyStandardInbound;
+
+impl zero_transport::runner::StandardTcpInboundProtocol for DummyStandardInbound {
+    type Staged = StagedCanary;
+    type Active = ();
+
+    fn activate(staged: Self::Staged) -> Result<(), ChannelError> {
+        staged.published.fetch_add(1, Ordering::AcqRel);
+        Ok(())
+    }
+
+    fn accept(
+        _active: (),
+        _socket: zero_platform_tokio::TokioSocket,
+        _resources: Arc<dyn ResourceAccess>,
+        _context: zero_platform_tokio::contract::context::HandshakeContext,
+    ) -> BoxFuture<
+        'static,
+        Result<zero_platform_tokio::contract::inbound::AcceptedRequest, ChannelError>,
+    > {
+        Box::pin(async {
+            Err(ChannelError::new(
+                Stage::Handshake,
+                Reason::Protocol,
+                Impact::Session,
+            ))
+        })
+    }
+}
+
+#[tokio::test]
+async fn standard_tcp_inbound_factory_stages_cold_credentials_until_single_shot_build() {
+    use zero_platform_tokio::contract::component::InboundSourceLimits;
+    use zero_transport::runner::{StandardTcpInboundFactory, StandardTcpInboundOptions};
+
+    let factory = StandardTcpInboundFactory::<DummyStandardInbound>::new();
+    let published = Arc::new(AtomicUsize::new(0));
+    let listen = Destination::new(Address::Ipv4([127, 0, 0, 1]), 18443);
+
+    let discarded = StandardTcpInboundOptions::<DummyStandardInbound>::new(
+        listen.clone(),
+        StagedCanary {
+            published: published.clone(),
+        },
+        b"inbound-secret",
+    );
+    drop(discarded);
+    assert_eq!(
+        published.load(Ordering::Acquire),
+        0,
+        "dropping cold options must never activate staged credentials"
+    );
+
+    let base = StandardTcpInboundOptions::<DummyStandardInbound>::new(
+        listen,
+        StagedCanary {
+            published: published.clone(),
+        },
+        b"inbound-secret",
+    );
+    let base_id = factory.describe(&base).static_identity;
+    let tuned = base
+        .with_inbound_source_limits(InboundSourceLimits::default())
+        .unwrap()
+        .with_inbound_work_limits(
+            NonZeroUsize::new(64).unwrap(),
+            32,
+            NonZeroUsize::new(32).unwrap(),
+        )
+        .unwrap();
+    let spec = factory.describe(&tuned);
+    assert_eq!(spec.roles, vec![RoleKind::Inbound]);
+    assert_ne!(spec.static_identity, base_id);
+
+    let options = Arc::new(tuned);
+    let scope = TaskScope::empty(tokio::runtime::Handle::current());
+    let mk_ctx = || BuildContext {
+        component: ComponentId(21),
+        generation: ResourceGeneration(1),
+        dependencies: Arc::from([]),
+        roles: ComponentRoleIds {
+            inbound: Some(zero_core::component::InboundId(3)),
+            ..Default::default()
+        },
+        resources: Arc::new(NoResources),
+        tasks: scope.registrar(),
+        cancel: CancellationToken::new(),
+        background_carrier: None,
+    };
+
+    let instance = factory.build(options.clone(), mk_ctx()).unwrap();
+    assert_eq!(published.load(Ordering::Acquire), 1);
+    assert!(instance.roles.inbound.is_some());
+
+    let err = factory
+        .build(options, mk_ctx())
+        .err()
+        .expect("second build on consumed staged material must fail with Revoked");
+    assert_eq!(err.reason, Reason::Revoked);
+    assert_eq!(published.load(Ordering::Acquire), 1);
+}
+
+#[cfg(feature = "quic")]
+#[tokio::test]
+async fn quic_pool_runner_validates_declarations_budgets_and_role_fences() {
+    use zero_transport::quic::owned::{OwnedBiStream, OwnedConnection, OwnedEndpointOwner};
+    use zero_transport::runner::{
+        QuicPool, QuicPoolFactory, QuicPoolLimits, QuicPoolProtocol, QuicPoolRoleFactory,
+        QuicPoolRoleProtocol,
+    };
+
+    #[derive(Clone)]
+    struct DummyProfile {
+        endpoint: Destination,
+        binding: UpstreamBinding,
+        identity: Arc<[u8]>,
+    }
+
+    struct DummyQuicProtocol;
+
+    impl QuicPoolProtocol for DummyQuicProtocol {
+        type Profile = DummyProfile;
+        type Pending = ();
+        type Session = ();
+
+        const ENDPOINT_OWNER_NAME: &'static str = "dummy.quic_pool";
+        const POOL_DEBUG_NAME: &'static str = "DummyQuicPool";
+        const DISPLAY_NAME: &'static str = "DummyQuic";
+
+        fn profile_endpoint(profile: &DummyProfile) -> &Destination {
+            &profile.endpoint
+        }
+        fn profile_binding(profile: &DummyProfile) -> &UpstreamBinding {
+            &profile.binding
+        }
+        fn profile_identity(profile: &DummyProfile) -> &Arc<[u8]> {
+            &profile.identity
+        }
+        fn profile_server_name(_: &DummyProfile) -> &str {
+            "example.com"
+        }
+        fn profile_port(profile: &DummyProfile) -> u16 {
+            profile.endpoint.port
+        }
+        fn profile_max_idle_timeout(_: &DummyProfile) -> Duration {
+            Duration::from_secs(10)
+        }
+        fn build_client_config(
+            _: &DummyProfile,
+            _: Option<&[u8]>,
+        ) -> Result<quinn::ClientConfig, ChannelError> {
+            Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                Impact::Component,
+            ))
+        }
+        fn prepare_session(
+            _: OwnedConnection,
+            _: &OwnedEndpointOwner,
+            _: &DummyProfile,
+            _: &QuicPoolLimits,
+        ) -> Result<(), ChannelError> {
+            Ok(())
+        }
+        fn authenticate<'a>(
+            _: &'a mut (),
+            _: &'a DummyProfile,
+            _: &'a zero_platform_tokio::contract::scope::TaskRegistrar,
+        ) -> BoxFuture<'a, Result<(), ChannelError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn finalize_session(
+            _: (),
+            _: Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin>,
+            _: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
+        ) -> BoxFuture<
+            'static,
+            Result<
+                (
+                    Arc<()>,
+                    Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
+                ),
+                ChannelError,
+            >,
+        > {
+            Box::pin(async { Ok((Arc::new(()), None)) })
+        }
+        fn is_session_ready(_: &()) -> bool {
+            true
+        }
+        fn request_pending_stop(_: &()) {}
+        fn stop_pending(_: &()) {}
+        fn request_session_stop(_: &()) {}
+        fn stop_session(
+            _: &Arc<()>,
+        ) -> BoxFuture<
+            'static,
+            Result<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>, ChannelError>,
+        > {
+            Box::pin(async { Ok(None) })
+        }
+    }
+
+    impl QuicPoolRoleProtocol for DummyQuicProtocol {
+        fn session_native_origin(
+            _: &(),
+        ) -> Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin>
+        {
+            None
+        }
+        fn open_stream<'a>(
+            _: &'a Arc<()>,
+            _: &'a Destination,
+            _: Option<Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>>,
+            _: Option<zero_core::component::SessionId>,
+        ) -> BoxFuture<'a, Result<OwnedBiStream, ChannelError>> {
+            Box::pin(async {
+                Err(ChannelError::new(
+                    Stage::Handshake,
+                    Reason::Protocol,
+                    Impact::Session,
+                ))
+            })
+        }
+    }
+
+    let pool = Arc::new(QuicPool::<DummyQuicProtocol>::default());
+    assert_eq!(format!("{pool:?}"), "DummyQuicPool");
+    let profile = DummyProfile {
+        endpoint: Destination::new(Address::Ipv4([127, 0, 0, 1]), 443),
+        binding: UpstreamBinding {
+            prefix: vec![],
+            dial: DialPolicy::default(),
+            network_generation: NetworkGeneration(1),
+        },
+        identity: Arc::from(&b"profile-0"[..]),
+    };
+    let options = pool
+        .options(vec![profile], Arc::from(&b"pool-id"[..]))
+        .with_entry_limit(NonZeroUsize::new(8).unwrap())
+        .unwrap();
+    let pool_spec = QuicPoolFactory::<DummyQuicProtocol>::new().describe(&options);
+    assert!(pool_spec.roles.is_empty());
+    assert_eq!(pool_spec.task_limit, Some(NonZeroUsize::new(65).unwrap()));
+    assert_eq!(pool_spec.resources.len(), 1);
+
+    let role_options = Arc::new(options.bind(0, ComponentId(50)));
+    let role_factory = QuicPoolRoleFactory::<DummyQuicProtocol>::new();
+    let role_spec = role_factory.describe(&role_options);
+    assert_eq!(role_spec.roles, vec![RoleKind::Stream]);
+    assert_eq!(role_spec.dependencies, vec![ComponentId(50)]);
+
+    let scope = TaskScope::empty(tokio::runtime::Handle::current());
+    let mut role_instance = role_factory
+        .build(
+            role_options,
+            BuildContext {
+                component: ComponentId(51),
+                generation: ResourceGeneration(1),
+                dependencies: Arc::from([ComponentInstanceId {
+                    component: ComponentId(50),
+                    generation: ResourceGeneration(1),
+                }]),
+                roles: ComponentRoleIds::default(),
+                resources: Arc::new(NoResources),
+                tasks: scope.registrar(),
+                cancel: CancellationToken::new(),
+                background_carrier: None,
+            },
+        )
+        .unwrap();
+    let err = role_instance
+        .lifecycle
+        .start(Instant::now() + Duration::from_secs(5))
+        .await
+        .expect_err("unstarted pool generation must reject role start");
+    assert_eq!(err.reason, Reason::Revoked);
+}

@@ -1,11 +1,13 @@
 //! Genuine sequential initialization on this pool's original Scope and Entry.
-//! The original stop-only slot is reused; no additional live setup task exists.
+
 use super::*;
+
 #[derive(Clone)]
 pub(super) struct SetupFailure {
     pub(super) source: Arc<ChannelError>,
     pub(super) next_candidate: bool,
 }
+
 impl SetupFailure {
     fn terminal(source: ChannelError) -> Self {
         Self {
@@ -14,45 +16,47 @@ impl SetupFailure {
         }
     }
 }
+
 pub(super) struct Candidate {
     pub(super) profile: usize,
     pub(super) index: usize,
     pub(super) upstream: UpstreamTransport,
     pub(super) call: CarrierContext,
     pub(super) client: quinn::ClientConfig,
-    pub(super) dns: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
-    pub(super) initializer_cancel: zero_platform_tokio::contract::CancellationToken,
+    pub(super) dns: Option<DnsGeneration>,
+    pub(super) initializer_cancel: CancellationToken,
 }
+
 enum Setup {
     Candidate(Candidate),
     Hop(usize),
 }
-impl Generation {
+
+impl<P: QuicPoolProtocol> QuicPoolGeneration<P> {
     pub(super) async fn setup_candidate(
         self: &Arc<Self>,
-        entry: &Arc<Entry>,
+        entry: &Arc<Entry<P>>,
         candidate: Candidate,
         end: Instant,
     ) -> Result<(), ChannelError> {
         self.run_setup(entry, Setup::Candidate(candidate), end)
             .await
     }
+
     pub(super) async fn setup_hop(
         self: &Arc<Self>,
-        entry: &Arc<Entry>,
+        entry: &Arc<Entry<P>>,
         profile: usize,
         end: Instant,
     ) -> Result<bool, ChannelError> {
-        // This is the original maintenance operation, not another endpoint,
-        // authentication or reconnect loop. Its one real Aux owns the native
-        // hop reservation while the existing endpoint keeps the same queues.
         self.run_setup(entry, Setup::Hop(profile), end).await?;
         entry.wait_setup_ack(end).await?;
         Ok(entry.state.lock().await.setup_worked)
     }
+
     async fn run_setup(
         self: &Arc<Self>,
-        entry: &Arc<Entry>,
+        entry: &Arc<Entry<P>>,
         operation: Setup,
         end: Instant,
     ) -> Result<(), ChannelError> {
@@ -65,7 +69,6 @@ impl Generation {
         if Instant::now() >= end {
             return Err(error(Stage::Prepare, Reason::Timeout));
         }
-        // Never replace an original caller registration still awaiting ACK.
         if state.caller.as_ref().is_some_and(|caller| {
             caller
                 .try_joined()
@@ -91,7 +94,6 @@ impl Generation {
             Setup::Hop(_) => None,
         };
         state.initializing = true;
-        // A synchronous registration unwind cannot become an empty-task proof.
         state.setup_registration = Some(self.tasks.retirement_observation());
         state.setup_failure = None;
         state.setup_worked = false;
@@ -102,8 +104,6 @@ impl Generation {
             .original_stop
             .clone()
             .unwrap_or_else(|| entry.cancel.clone());
-        // Only this one actual initializer observes its requesting caller.
-        // Ready cached authentications keep their existing independent owner.
         let initializer_cancel = match &operation {
             Setup::Candidate(candidate) => candidate.initializer_cancel.clone(),
             Setup::Hop(_) => entry.cancel.clone(),
@@ -124,17 +124,18 @@ impl Generation {
                         .map_err(SetupFailure::terminal),
                 }
             };
-            let result = tokio::select! { biased;
-                result = tokio::time::timeout_at(end,work) => Some(match result {
+            let result = tokio::select! {
+                biased;
+                result = tokio::time::timeout_at(end, work) => Some(match result {
                     Ok(result) => result,
-                    Err(source) => Err(SetupFailure::terminal(error(Stage::Prepare,Reason::Timeout).with_source(source))),
+                    Err(source) => Err(SetupFailure::terminal(
+                        error(Stage::Prepare, Reason::Timeout).with_source(source),
+                    )),
                 }),
                 _ = actual.cancel.cancelled() => None,
                 _ = original_stop.cancelled() => None,
                 _ = initializer_cancel.cancelled() => None,
             };
-            // The exact operation error is retained in the existing Entry
-            // before the real task returns Err and before local/Host receipt.
             let mut state = actual.state.lock().await;
             state.initializing = false;
             match result {
@@ -214,7 +215,82 @@ impl Generation {
             Err(ChannelError::retained(failure.source.clone()))
         })
     }
-}
 
-mod candidate;
-mod receive;
+    async fn initialize_candidate(
+        &self,
+        entry: &Entry<P>,
+        candidate: Candidate,
+        end: Instant,
+    ) -> Result<(), SetupFailure> {
+        let mut state = entry.state.lock().await;
+        let profile = &self.profiles[candidate.profile];
+        if state.candidates.is_none() {
+            let mut resolve = candidate.call;
+            resolve.deadline = None;
+            resolve.cancel = entry.cancel.clone();
+            let candidates = tokio::time::timeout_at(
+                end,
+                candidate
+                    .upstream
+                    .resolve_controlled_carrier(P::profile_endpoint(profile).clone(), resolve),
+            )
+            .await
+            .map_err(|source| {
+                SetupFailure::terminal(error(Stage::Dial, Reason::Timeout).with_source(source))
+            })?
+            .map_err(SetupFailure::terminal)?;
+            if candidates.is_empty() {
+                return Err(SetupFailure::terminal(error(Stage::Dial, Reason::Io)));
+            }
+            if candidate.upstream.carrier_dns_generation() != candidate.dns {
+                return Err(SetupFailure::terminal(error(
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                )));
+            }
+            state.candidates = Some(candidates);
+        }
+        self.retain_failed_candidate(&mut state)
+            .map_err(SetupFailure::terminal)?;
+        let connection = self
+            .open_candidate(
+                &mut state,
+                candidate.profile,
+                candidate.index,
+                &candidate.client,
+                end,
+            )
+            .await
+            .map_err(|source| SetupFailure {
+                source: Arc::new(source),
+                next_candidate: true,
+            })?;
+        state.selected_candidate = Some(candidate.index);
+        state.pending = Some(
+            P::prepare_session(
+                connection,
+                state.owner.as_ref().unwrap(),
+                profile,
+                &self.limits,
+            )
+            .map_err(SetupFailure::terminal)?,
+        );
+        tokio::time::timeout_at(
+            end,
+            P::authenticate(state.pending.as_mut().unwrap(), profile, &self.tasks),
+        )
+        .await
+        .map_err(|source| {
+            SetupFailure::terminal(error(Stage::Handshake, Reason::Timeout).with_source(source))
+        })?
+        .map_err(SetupFailure::terminal)?;
+        let pending = state.pending.take().unwrap();
+        let origin = state.origin.clone();
+        let (session, witness) = P::finalize_session(pending, origin, candidate.dns)
+            .await
+            .map_err(SetupFailure::terminal)?;
+        state.aux_join = witness;
+        state.session = Some(session);
+        Ok(())
+    }
+}

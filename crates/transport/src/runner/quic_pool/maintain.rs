@@ -1,5 +1,8 @@
+//! Periodic idle expiry, failed-entry reaping, and outer UDP port hopping.
+
 use super::*;
-impl Generation {
+
+impl<P: QuicPoolProtocol> QuicPoolGeneration<P> {
     pub(super) async fn maintain(self: &Arc<Self>, end: Instant) -> Result<bool, ChannelError> {
         let mut entries = self
             .entries
@@ -24,14 +27,8 @@ impl Generation {
             }
             let idle = state.idle();
             let expired = entry.touched.lock().unwrap().elapsed()
-                >= Duration::from_secs(
-                    self.profiles[key.profile]
-                        .leaf
-                        .settings
-                        .quic
-                        .max_idle_timeout_secs,
-                );
-            let failed = state.attempted && state.auth.is_none();
+                >= P::profile_max_idle_timeout(&self.profiles[key.profile]);
+            let failed = state.attempted && state.session.is_none();
             let retiring = entry.cancel.is_cancelled();
             let hop = state.next_hop.is_some_and(|time| Instant::now() >= time);
             drop(state);
@@ -48,8 +45,6 @@ impl Generation {
                     }
                     Ok(false) => false,
                     Err(source) if close::is_close_timeout(&source) => {
-                        // The original controller still owns the in-progress
-                        // close. Keep its charge and resume on the next tick.
                         return Ok(false);
                     }
                     Err(source) => return Err(source),
@@ -60,8 +55,6 @@ impl Generation {
                 false
             };
             if worked {
-                // One actual original per five-second slice. A successful
-                // slice resumes from the next profile, including busy pools.
                 *self.maintenance_cursor.lock().unwrap() = if key.profile + 1 == self.profiles.len()
                 {
                     0
@@ -73,14 +66,15 @@ impl Generation {
         }
         Ok(false)
     }
+
     pub(super) async fn rotate(
         &self,
         profile: usize,
-        entry: &Entry,
+        entry: &Entry<P>,
         end: Instant,
     ) -> Result<bool, ChannelError> {
         let options = &self.profiles[profile];
-        let Some(hop) = &options.leaf.node.udp_hop else {
+        let Some(hop) = P::profile_udp_hop(options) else {
             return Ok(false);
         };
         let mut state = tokio::time::timeout_at(end, entry.state.lock())
@@ -98,9 +92,6 @@ impl Generation {
             .and_then(|candidates| candidates.peer(selected))
             .is_none()
         {
-            // Sealed DNS/network authority changed. Preserve this original;
-            // only a fresh acquire may retire all old users/drivers/native and
-            // then resolve/acquire a replacement with its actual new key.
             return Ok(false);
         }
         if state.receipt.is_none() {
@@ -112,8 +103,6 @@ impl Generation {
             state.queues = Some(queues);
             state.receipt = Some(receipt);
         }
-        // This is the original provider's real native/probe close. No next
-        // socket, endpoint or worker is prepared until it confirms this slot.
         let original = state.origin.as_ref().unwrap();
         let closed = tokio::time::timeout_at(
             end,
@@ -149,15 +138,9 @@ impl Generation {
         state.retiring_registrations = state.receipt.take();
         if let Some(failure) = failure {
             state.retired_application.push(failure.clone());
-            // A failed original worker is a real task fault. Retain its actual
-            // group for the same host's final report instead of adding an
-            // unbounded stream of failures to one still-live logical entry.
             return Err(error(Stage::Close, Reason::Io)
                 .with_source(OriginalChannel(failure.result().unwrap_err())));
         }
-        // The current hop Aux is independent of this old physical segment.
-        // NativeClosed precedes waiting its original packet ACK; the persistent
-        // endpoint ledger remains live in the exact returned unique queues.
         drop(state);
         entry.wait_endpoint_ack(end).await?;
         let mut state = tokio::time::timeout_at(end, entry.state.lock())
@@ -218,18 +201,14 @@ impl Generation {
                 state.retirement.as_ref().unwrap(),
             )?;
         received.confirm()?;
-        // Every logical borrower continues to charge the original protocol
-        // anchor. The newly closed wire cannot retire those live logical users.
         drop(state.previous_permit.take());
         state.next_hop = Some(Instant::now() + hop.next_interval());
         Ok(true)
     }
 }
 
-impl EntryState {
+impl<P: QuicPoolProtocol> EntryState<P> {
     pub(super) fn idle(&self) -> bool {
-        self.auth
-            .as_ref()
-            .is_some_and(|auth| Arc::strong_count(auth) == 1)
+        self.session.as_ref().is_some_and(P::is_session_idle)
     }
 }

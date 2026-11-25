@@ -44,9 +44,6 @@ impl PreparedVmessInboundListenerRequest {
 }
 
 impl VmessInboundListenerRequest {
-    pub(crate) fn tls_material(&self) -> Option<std::sync::Arc<tls::source::PreparedServer>> {
-        self.material.tls_material.clone()
-    }
     pub const ERROR_PROTOCOL_NAME: &'static str = "vmess";
     pub const UDP_PROTOCOL: &'static str = "vmess_udp";
     pub const MUX_PROTOCOL: &'static str = "vmess_mux";

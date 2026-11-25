@@ -1,26 +1,22 @@
 //! Capacity is returned by the original entry's ledger removal.
+
 use super::*;
 
-impl Generation {
+impl<P: QuicPoolProtocol> QuicPoolGeneration<P> {
     pub(super) async fn admit_entry(
         &self,
         key: &Key,
         end: Instant,
-    ) -> Result<Arc<Entry>, ChannelError> {
+    ) -> Result<Arc<Entry<P>>, ChannelError> {
         if let Ok(_turn) = self.entry_admission.try_lock() {
             if let Some(entry) = self.try_admit_entry(key, end)? {
                 return Ok(entry);
             }
         } else if let Some(existing) = self.entries.lock().unwrap().get(key).cloned() {
-            // A cached lookup needs no new position and never queues behind an
-            // unrelated retirement. The existing initializer still fences it.
             self.check_admission(end)?;
             return Ok(existing);
         }
 
-        // One FIFO waiter observes the returned position and admits it from the
-        // actual ledger. Keep this wait across candidates so newer callers
-        // cannot repeatedly claim positions in front of a slow retirement.
         let admission = self.admit_when_released(key, end);
         tokio::pin!(admission);
         let mut candidates = self
@@ -56,8 +52,6 @@ impl Generation {
         tokio::select! {
             biased;
             admitted = &mut admission => admitted,
-            // Every candidate was busy or in use. Preserve the immediate
-            // pressure rejection when we could not retire an original.
             () = std::future::ready(()) => Err(error(Stage::Prepare, Reason::Capacity)),
         }
     }
@@ -66,35 +60,37 @@ impl Generation {
         &self,
         key: &Key,
         end: Instant,
-    ) -> Result<Arc<Entry>, ChannelError> {
+    ) -> Result<Arc<Entry<P>>, ChannelError> {
         let _turn = self.entry_admission.lock().await;
         loop {
             let changed = self.entry_released.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
             if let Some(entry) = self.try_admit_entry(key, end)? {
-                // Maintenance continues any idle original already revoked by
-                // this caller. Only another completed entry funded admission.
                 return Ok(entry);
             }
             changed.await;
         }
     }
 
-    fn try_admit_entry(&self, key: &Key, end: Instant) -> Result<Option<Arc<Entry>>, ChannelError> {
+    fn try_admit_entry(
+        &self,
+        key: &Key,
+        end: Instant,
+    ) -> Result<Option<Arc<Entry<P>>>, ChannelError> {
         let mut entries = self.entries.lock().unwrap();
         self.check_admission(end)?;
         if let Some(entry) = entries.get(key) {
             return Ok(Some(entry.clone()));
         }
-        if entries.len() + self.failures.lock().unwrap().len() >= self.entry_limit.get() {
+        if entries.len() + self.failures.lock().unwrap().len() >= self.limits.entry_limit.get() {
             return Ok(None);
         }
         let entry = Arc::new(Entry {
             resources: self.resources.clone(),
             initialization: Default::default(),
             cancel: self.cancel.child_token(),
-            state: Default::default(),
+            state: tokio::sync::Mutex::new(EntryState::default()),
             touched: Mutex::new(Instant::now()),
             protocol_wait: Default::default(),
         });

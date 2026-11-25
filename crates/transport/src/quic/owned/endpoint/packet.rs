@@ -15,7 +15,6 @@ impl OwnedEndpointOwner {
     }
 }
 
-#[cfg(feature = "hysteria")]
 impl OwnedEndpointOwner {
     /// This client's unique packet segment is retiring for good. Keep the
     /// original wire running to drain its finite send queue after the real
@@ -35,7 +34,6 @@ impl OwnedEndpointOwner {
     }
 }
 
-#[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
 impl OwnedEndpointOwner {
     /// The native packet view has reached this exact live Quinn endpoint
     /// driver. Authentication and logical caller delivery remain separate.
@@ -95,7 +93,6 @@ impl OwnedEndpointOwner {
     }
 }
 
-#[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
 impl OwnedEndpointOwner {
     pub fn prepare_native_endpoint_continuation_receiver(
         &self,

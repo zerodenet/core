@@ -1,5 +1,6 @@
-//! One logical QUIC stream loan retains its actual authentication and I/O.
-use super::Stream;
+//! Logical QUIC stream loan wrapper over [`QuicPooledStream`].
+
+use super::{QuicPoolProtocol, QuicPooledStream};
 use std::{
     io,
     pin::Pin,
@@ -7,6 +8,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::time::Instant;
 use zero_platform_tokio::{
     contract::{
         lifecycle::{CloseReport, DynChannelControl},
@@ -15,26 +17,28 @@ use zero_platform_tokio::{
     controlled_carrier::loan::StreamLoan,
 };
 
-struct Shared {
-    stream: Mutex<Option<Stream>>,
+struct SharedLoan<P: QuicPoolProtocol> {
+    stream: Mutex<Option<QuicPooledStream<P>>>,
     stop: CancellationToken,
 }
-struct View(Arc<Shared>);
-struct Control(Arc<Shared>);
 
-pub(super) fn loan(stream: Stream) -> StreamLoan {
+struct LoanView<P: QuicPoolProtocol>(Arc<SharedLoan<P>>);
+struct LoanControl<P: QuicPoolProtocol>(Arc<SharedLoan<P>>);
+
+pub(super) fn loan_stream<P: QuicPoolProtocol>(stream: QuicPooledStream<P>) -> StreamLoan {
     let original = stream.original.clone();
-    let shared = Arc::new(Shared {
+    let shared = Arc::new(SharedLoan {
         stream: Mutex::new(Some(stream)),
         stop: CancellationToken::new(),
     });
     StreamLoan::new(
-        Box::pin(View(shared.clone())),
-        Box::new(Control(shared)).into(),
+        Box::pin(LoanView(shared.clone())),
+        Box::new(LoanControl(shared)).into(),
         original,
     )
 }
-impl View {
+
+impl<P: QuicPoolProtocol> LoanView<P> {
     fn check(&self) -> io::Result<()> {
         if self.0.stop.is_cancelled() {
             Err(io::ErrorKind::BrokenPipe.into())
@@ -43,7 +47,8 @@ impl View {
         }
     }
 }
-impl AsyncRead for View {
+
+impl<P: QuicPoolProtocol> AsyncRead for LoanView<P> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -56,12 +61,13 @@ impl AsyncRead for View {
                 .lock()
                 .unwrap()
                 .as_mut()
-                .expect("live HY2 loan"),
+                .expect("live QUIC stream loan"),
         )
         .poll_read(cx, bytes)
     }
 }
-impl AsyncWrite for View {
+
+impl<P: QuicPoolProtocol> AsyncWrite for LoanView<P> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -74,10 +80,11 @@ impl AsyncWrite for View {
                 .lock()
                 .unwrap()
                 .as_mut()
-                .expect("live HY2 loan"),
+                .expect("live QUIC stream loan"),
         )
         .poll_write(cx, bytes)
     }
+
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.check()?;
         Pin::new(
@@ -86,10 +93,11 @@ impl AsyncWrite for View {
                 .lock()
                 .unwrap()
                 .as_mut()
-                .expect("live HY2 loan"),
+                .expect("live QUIC stream loan"),
         )
         .poll_flush(cx)
     }
+
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.check()?;
         Pin::new(
@@ -98,38 +106,38 @@ impl AsyncWrite for View {
                 .lock()
                 .unwrap()
                 .as_mut()
-                .expect("live HY2 loan"),
+                .expect("live QUIC stream loan"),
         )
         .poll_shutdown(cx)
     }
 }
-impl DynChannelControl for Control {
+
+impl<P: QuicPoolProtocol> DynChannelControl for LoanControl<P> {
     fn cancel(&self, _: CloseReason) {
         self.0.stop.cancel();
     }
-    fn wait_closed(
-        &mut self,
-        _: tokio::time::Instant,
-    ) -> BoxFuture<'_, Result<CloseReport, ChannelError>> {
+
+    fn wait_closed(&mut self, _: Instant) -> BoxFuture<'_, Result<CloseReport, ChannelError>> {
         Box::pin(async move {
             self.0.stop.cancel();
             let mut retained = self.0.stream.lock().unwrap();
             let Some(stream) = retained.as_mut() else {
                 return Ok(CloseReport::default());
             };
-            // LoanOwner first confirms the unique transferred view returned.
-            // Retire these same two logical QUIC directions, then release their
-            // sealed users. The pool still owns native and driver completion.
             stream.io.retire_logical();
             drop(retained.take());
             Ok(CloseReport {
-                released_resources: vec!["HY2 original logical QUIC stream returned".into()],
+                released_resources: vec![format!(
+                    "{} original logical QUIC stream returned",
+                    P::DISPLAY_NAME
+                )],
                 ..Default::default()
             })
         })
     }
 }
-impl Drop for Control {
+
+impl<P: QuicPoolProtocol> Drop for LoanControl<P> {
     fn drop(&mut self) {
         self.0.stop.cancel();
     }

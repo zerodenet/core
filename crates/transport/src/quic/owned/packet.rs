@@ -31,12 +31,6 @@ mod hopping;
 mod prepare;
 mod retire;
 pub use hopping::{PacketHopMemory, PacketReceiveLoan};
-#[cfg(any(
-    feature = "split_http",
-    feature = "mkcp",
-    feature = "hysteria",
-    feature = "quic_h3"
-))]
 mod xhttp;
 pub use borrowed::{
     BorrowedPacketReturned, BorrowedPacketSegment, BorrowedProtocolReturned,
@@ -49,12 +43,6 @@ pub struct PacketSegment {
     identity: Arc<continuation::PacketIdentity>,
     graph: MetadataUserGraph<OwnedDriverOrigin, DriverBody>,
     receiver: super::DriverExitReceiver,
-    #[cfg(any(
-        feature = "split_http",
-        feature = "mkcp",
-        feature = "hysteria",
-        feature = "quic_h3"
-    ))]
     endpoint_users: Option<(
         super::OwnedEndpointLimits,
         MetadataUserGraph<OwnedDriverOrigin, DriverBody>,

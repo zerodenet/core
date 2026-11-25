@@ -129,12 +129,4 @@ impl PoolProfile {
             .into_iter()
             .collect()
     }
-    pub(super) fn ports(&self) -> Vec<u16> {
-        self.leaf
-            .node
-            .udp_hop
-            .as_ref()
-            .map(|hop| hop.ports().to_vec())
-            .unwrap_or_default()
-    }
 }

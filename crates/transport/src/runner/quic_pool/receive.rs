@@ -1,18 +1,15 @@
 //! Original setup/endpoint exit reception, separate from native and Host ACK.
+
 use super::*;
 
-impl Entry {
-    pub(in crate::transport::owned::pool) async fn receive_setup(
-        &self,
-        end: Instant,
-    ) -> Result<(), ChannelError> {
+impl<P: QuicPoolProtocol> Entry<P> {
+    pub(super) async fn receive_setup(&self, end: Instant) -> Result<(), ChannelError> {
         tokio::time::timeout_at(end, self.receive_setup_original())
             .await
             .map_err(|source| self.close_timeout("setup exit receipt", Some(source)))?
     }
-    pub(in crate::transport::owned::pool) async fn receive_setup_original(
-        &self,
-    ) -> Result<(), ChannelError> {
+
+    pub(super) async fn receive_setup_original(&self) -> Result<(), ChannelError> {
         let caller = { self.state.lock().await.caller.clone() };
         let Some(caller) = caller else { return Ok(()) };
         let joined = caller.wait().await;
@@ -26,10 +23,8 @@ impl Entry {
                 state.setup_exit = Some(joined.clone());
                 if let Err(source) = joined.result() {
                     if state.setup_failure.is_none() {
-                        // Panic/registration wrapper faults are real task
-                        // faults, unlike an already retained operation result.
                         state.retired_application.push(joined.clone());
-                        state.setup_failure = Some(SetupFailure {
+                        state.setup_failure = Some(setup::SetupFailure {
                             source,
                             next_candidate: false,
                         });
@@ -45,10 +40,8 @@ impl Entry {
         }
         Ok(())
     }
-    pub(in crate::transport::owned::pool) async fn wait_setup_ack(
-        &self,
-        end: Instant,
-    ) -> Result<(), ChannelError> {
+
+    pub(super) async fn wait_setup_ack(&self, end: Instant) -> Result<(), ChannelError> {
         let caller = { self.state.lock().await.caller.clone() };
         if let Some(caller) = caller {
             let joined = tokio::time::timeout_at(end, caller.wait_registration_released())
@@ -65,13 +58,8 @@ impl Entry {
         }
         Ok(())
     }
-}
 
-impl Entry {
-    pub(in crate::transport::owned::pool) async fn wait_endpoint_ack(
-        &self,
-        end: Instant,
-    ) -> Result<(), ChannelError> {
+    pub(super) async fn wait_endpoint_ack(&self, end: Instant) -> Result<(), ChannelError> {
         let receipt = { self.state.lock().await.retiring_registrations.clone() };
         if let Some(receipt) = receipt {
             for original in receipt

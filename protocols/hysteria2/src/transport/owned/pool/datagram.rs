@@ -3,20 +3,24 @@ use std::{
     pin::Pin,
     sync::atomic::Ordering,
     task::{Context, Poll},
+    time::Duration,
 };
+use tokio::time::Instant;
 use zero_core::{component::AssociationId, packet::Datagram};
 use zero_platform_tokio::contract::{
     datagram::{DatagramRx, DatagramTx},
-    lifecycle::ChannelControl,
-    BoxFuture, CancellationToken, SendFailure, SendReceipt,
+    lifecycle::{ChannelControl, CloseReport},
+    BoxFuture, CancellationToken, CloseReason, SendFailure, SendReceipt,
 };
 mod shared;
 use shared::Shared;
+
 struct PendingSend {
     target: zero_core::request::Destination,
     payload: Arc<[u8]>,
     future: BoxFuture<'static, Result<usize, SendFailure>>,
 }
+
 pub struct Tx {
     shared: Arc<Shared>,
     association: AssociationId,
@@ -25,16 +29,20 @@ pub struct Tx {
     session: Option<zero_core::component::SessionId>,
     pending: Option<PendingSend>,
 }
+
 type PendingReceive = BoxFuture<'static, Result<(zero_core::Address, u16, Vec<u8>), ChannelError>>;
+
 pub struct Rx {
     shared: Arc<Shared>,
     association: AssociationId,
     pending: Option<PendingReceive>,
 }
+
 pub struct Control {
     shared: Arc<Shared>,
     closed: bool,
 }
+
 pub(super) fn session(
     channel: OwnedUdpChannel,
     request: DatagramRequest,
@@ -75,6 +83,7 @@ pub(super) fn session(
         limits,
     })
 }
+
 impl DatagramTx for Tx {
     fn poll_send(
         self: Pin<&mut Self>,
@@ -113,8 +122,6 @@ impl DatagramTx for Tx {
         let result = std::task::ready!(this.pending.as_mut().unwrap().future.as_mut().poll(cx));
         this.pending = None;
         let sent = result?;
-        // HY2's existing managed Flow accounting is payload-only. QUIC and
-        // native framing remains counted once at the actual Outer provider.
         if let Some(observer) = &this.observer {
             observer.datagram_sent(this.session, sent as u64);
         }
@@ -124,6 +131,7 @@ impl DatagramTx for Tx {
         }))
     }
 }
+
 impl DatagramRx for Rx {
     fn poll_recv(
         self: Pin<&mut Self>,
@@ -147,26 +155,29 @@ impl DatagramRx for Rx {
         })))
     }
 }
+
 impl Drop for Tx {
     fn drop(&mut self) {
         self.pending = None;
         self.shared.returned();
     }
 }
+
 impl Drop for Rx {
     fn drop(&mut self) {
         self.pending = None;
         self.shared.returned();
     }
 }
+
 impl ChannelControl for Control {
     fn cancel(&self, _: CloseReason) {
         self.shared.stop.cancel();
     }
+
     async fn wait_closed(&mut self, end: Instant) -> Result<CloseReport, ChannelError> {
         self.cancel(CloseReason::Shutdown);
         if self.closed {
-            // The unique original report was already handed to this caller.
             return Ok(CloseReport::default());
         }
         loop {
@@ -184,6 +195,7 @@ impl ChannelControl for Control {
         }
     }
 }
+
 impl Drop for Control {
     fn drop(&mut self) {
         self.cancel(CloseReason::Shutdown);

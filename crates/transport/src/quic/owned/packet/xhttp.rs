@@ -11,14 +11,7 @@ impl PacketSocket {
             .is_some_and(|memory| memory.book.same_budget(book))
     }
 }
-#[cfg(any(
-    feature = "split_http",
-    feature = "mkcp",
-    feature = "hysteria",
-    feature = "quic_h3"
-))]
 impl PacketSegment {
-    #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     pub(in crate::quic::owned) fn retained_receiver_views(
         &self,
         socket: &PacketSocket,
@@ -68,7 +61,6 @@ impl PacketSegment {
     }
 }
 
-#[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
 impl PacketSegment {
     pub(in crate::quic::owned) fn retained_continuation_views(
         &self,

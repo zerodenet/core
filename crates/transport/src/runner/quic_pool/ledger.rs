@@ -1,11 +1,14 @@
 //! Unpublished actual failures charge the same finite entry budget. Successes
 //! consume no lifetime credit once their original native/user/task gates settle.
+
 use super::*;
+
 pub(super) struct FailedGroup {
     pub(super) drivers: Vec<DriverDelivery>,
     pub(super) native: Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>>,
     pub(super) application: Vec<zero_platform_tokio::contract::scope::TaskJoined>,
 }
+
 pub(super) fn append_report<'a>(
     report: &mut CloseReport,
     joined: impl IntoIterator<Item = &'a zero_platform_tokio::contract::scope::TaskJoined>,
@@ -27,12 +30,14 @@ pub(super) fn append_report<'a>(
         }
     }
 }
-impl EntryState {
+
+impl<P: QuicPoolProtocol> EntryState<P> {
     pub(super) fn has_failures(&self) -> bool {
         !self.retired_drivers.is_empty()
             || !self.retired_application.is_empty()
             || self.native_failure.is_some()
     }
+
     fn take_failures(&mut self) -> FailedGroup {
         FailedGroup {
             native: self.native_failure.take(),
@@ -41,10 +46,8 @@ impl EntryState {
         }
     }
 }
-impl Entry {
-    /// Receive the actual native-only capsule outside the Entry state lock.
-    /// The canonical receiver is returned only through CloseReport, never the
-    /// same task error or a payload retained by that receiver.
+
+impl<P: QuicPoolProtocol> Entry<P> {
     pub(super) async fn receive_native_failure(&self) -> Result<(), ChannelError> {
         let actual = {
             let state = self.state.lock().await;
@@ -69,28 +72,34 @@ impl Entry {
         Ok(())
     }
 }
-impl Generation {
+
+impl<P: QuicPoolProtocol> QuicPoolGeneration<P> {
     pub(super) fn trace_budget(&self) {
         let (entries, failure_groups) = {
             let entries = self.entries.lock().unwrap();
             let failures = self.failures.lock().unwrap();
             (entries.len(), failures.len())
         };
-        tracing::debug!(target: "hysteria2::pool_budget", entries, failure_groups, entry_limit=self.entry_limit.get(), "original pool budget");
+        tracing::debug!(
+            target: "zero_transport::quic_pool_budget",
+            protocol = P::DISPLAY_NAME,
+            entries,
+            failure_groups,
+            entry_limit = self.limits.entry_limit.get(),
+            "original pool budget"
+        );
     }
-    /// A failed candidate's current original is fully settled first. Reserve
-    /// room for that immutable group before the same active entry can construct
-    /// another original. Refusal leaves the real sources in that same entry.
+
     pub(super) fn retain_failed_candidate(
         &self,
-        state: &mut EntryState,
+        state: &mut EntryState<P>,
     ) -> Result<(), ChannelError> {
         if !state.has_failures() {
             return Ok(());
         }
         let entries = self.entries.lock().unwrap();
         let mut failures = self.failures.lock().unwrap();
-        if entries.len() + failures.len() >= self.entry_limit.get() {
+        if entries.len() + failures.len() >= self.limits.entry_limit.get() {
             return Err(error(Stage::Prepare, Reason::Capacity));
         }
         failures.push(state.take_failures());
@@ -99,12 +108,11 @@ impl Generation {
         self.trace_budget();
         Ok(())
     }
-    /// Transfer the exact closed entry's debt before removing its map owner.
-    /// Keeping a new successor with the same key cannot remove that successor.
+
     pub(super) async fn remove_entry(
         &self,
         key: &Key,
-        entry: &Arc<Entry>,
+        entry: &Arc<Entry<P>>,
     ) -> Result<(), ChannelError> {
         let mut state = entry.state.lock().await;
         if !state.closed {
@@ -120,8 +128,6 @@ impl Generation {
                 return Ok(());
             }
             if retains_charge {
-                // Exchange this existing entry position for its actual settled
-                // failure group. No additional capacity is created or refunded.
                 self.failures.lock().unwrap().push(state.take_failures());
             }
             entries.remove(key)

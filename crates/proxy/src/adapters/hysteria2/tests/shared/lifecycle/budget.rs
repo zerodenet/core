@@ -24,7 +24,10 @@ impl tracing::Subscriber for Budgets {
     fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
         matches!(
             metadata.target(),
-            "hysteria2::pool_budget" | "hysteria2::pool_close"
+            "hysteria2::pool_budget"
+                | "hysteria2::pool_close"
+                | "zero_transport::quic_pool_budget"
+                | "zero_transport::quic_pool_close"
         )
     }
     fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
@@ -35,7 +38,10 @@ impl tracing::Subscriber for Budgets {
     fn enter(&self, _: &tracing::span::Id) {}
     fn exit(&self, _: &tracing::span::Id) {}
     fn event(&self, event: &tracing::Event<'_>) {
-        if event.metadata().target() == "hysteria2::pool_close" {
+        if matches!(
+            event.metadata().target(),
+            "hysteria2::pool_close" | "zero_transport::quic_pool_close"
+        ) {
             struct CloseFields;
             impl tracing::field::Visit for CloseFields {
                 fn record_debug(

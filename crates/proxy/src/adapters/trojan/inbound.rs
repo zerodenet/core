@@ -59,7 +59,9 @@ impl TrojanAdapter {
             identity.extend_from_slice(directory.to_string_lossy().as_bytes());
         }
         Ok(::trojan::component::inbound::listener::Options::new(
-            listen, request, update, &identity,
+            listen,
+            (request, update),
+            &identity,
         ))
     }
 }

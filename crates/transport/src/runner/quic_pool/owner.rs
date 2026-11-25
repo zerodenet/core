@@ -1,6 +1,8 @@
 //! Actual owner startup and final handoff of native/task cleanup reports.
+
 use super::*;
-impl ResourceLifecycle for Owner {
+
+impl<P: QuicPoolProtocol> ResourceLifecycle for Owner<P> {
     async fn start(&mut self, end: Instant) -> Result<(), BuildError> {
         if self.attempted {
             return Err(error(Stage::Prepare, Reason::Revoked));
@@ -47,19 +49,15 @@ impl ResourceLifecycle for Owner {
             for (index, profile) in self.generation.profiles.iter().enumerate() {
                 let material = match &prepared {
                     Some(materials) => materials[index].clone(),
-                    None => match profile.ca_cert_path() {
+                    None => match P::profile_ca_cert_path(profile) {
                         Some(path) => Some(Arc::<[u8]>::from(
                             self.resources.read_file(path, 16 * 1024 * 1024).await?,
                         )),
                         None => None,
                     },
                 };
-                clients.push(profile.client_config(material.as_deref())?);
+                clients.push(P::build_client_config(profile, material.as_deref())?);
             }
-            // The actual cold recipe owns this write-once crypto capsule.
-            // A changed material identity owns another capsule. Restoring this old
-            // recipe after a failed candidate reuses its last-good material;
-            // it never reopens a changed path or retains any original I/O.
             self.generation
                 .clients
                 .set(clients.into())
@@ -75,35 +73,53 @@ impl ResourceLifecycle for Owner {
         *self.pool.current.lock().unwrap() = Some(Arc::downgrade(&self.generation));
         let weak = Arc::downgrade(&self.generation);
         let stop = self.generation.cancel.clone();
-        let (_,witness)=self.generation.tasks.spawn_tracked(TaskClass::Critical,async move {
-            let mut immediate = false;
-            loop {
-                if immediate {
-                    tokio::select! {biased;_=stop.cancelled()=>return Ok(()),_=tokio::task::yield_now()=>{}}
-                } else {
-                    tokio::select! {biased;_=stop.cancelled()=>return Ok(()),_=tokio::time::sleep(Duration::from_secs(1))=>{}}
+        let (_, witness) = self
+            .generation
+            .tasks
+            .spawn_tracked(TaskClass::Critical, async move {
+                let mut immediate = false;
+                loop {
+                    if immediate {
+                        tokio::select! {
+                            biased;
+                            _ = stop.cancelled() => return Ok(()),
+                            _ = tokio::task::yield_now() => {}
+                        }
+                    } else {
+                        tokio::select! {
+                            biased;
+                            _ = stop.cancelled() => return Ok(()),
+                            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                        }
+                    }
+                    let Some(generation) = weak.upgrade() else {
+                        return Ok(());
+                    };
+                    immediate = tokio::select! {
+                        biased;
+                        _ = stop.cancelled() => return Ok(()),
+                        result = generation.maintain(Instant::now() + Duration::from_secs(5)) => result?,
+                    };
                 }
-                let Some(generation)=weak.upgrade() else{return Ok(())};
-                // The retained entries and original controllers outlive a
-                // maintenance wait. On stop, the lifecycle receives them
-                // directly instead of spending its deadline on this observer.
-                immediate=tokio::select! {biased;
-                    _=stop.cancelled()=>return Ok(()),
-                    result=generation.maintain(Instant::now()+Duration::from_secs(5))=>result?,
-                };
-            }
-        }).map_err(|source|error(Stage::Prepare,Reason::Capacity).with_source(source))?;
+            })
+            .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
         *self.generation.maintenance.lock().unwrap() = Some(witness);
         Ok(())
     }
+
     fn revoke(&self, _: CloseReason) {
         self.generation.cancel.cancel();
         for entry in self.generation.entries.lock().unwrap().values() {
             entry.cancel.cancel();
         }
     }
+
     async fn shutdown(&mut self, end: Instant) -> Result<CloseReport, BuildError> {
-        tracing::debug!(target: "hysteria2::pool_close", "waiting for maintenance join");
+        tracing::debug!(
+            target: "zero_transport::quic_pool_close",
+            protocol = P::DISPLAY_NAME,
+            "waiting for maintenance join"
+        );
         self.revoke(CloseReason::Shutdown);
         let maintenance = self.generation.maintenance.lock().unwrap().clone();
         if let Some(witness) = maintenance {
@@ -124,19 +140,27 @@ impl ResourceLifecycle for Owner {
             .values()
             .cloned()
             .collect::<Vec<_>>();
-        // Each exact owner retains its partial cleanup state. Drive all of
-        // the existing finite entry set inline against the same caller end;
-        // a slow original cannot spend the other originals' close budgets.
-        tracing::debug!(target: "hysteria2::pool_close", entries = entries.len(), "waiting for entry closes");
+        tracing::debug!(
+            target: "zero_transport::quic_pool_close",
+            protocol = P::DISPLAY_NAME,
+            entries = entries.len(),
+            "waiting for entry closes"
+        );
         let results = futures_util::future::join_all(entries.iter().map(|entry| async {
             let result = entry.close(end).await;
             if let Err(error) = &result {
                 let cause = std::error::Error::source(error).map(ToString::to_string);
-                tracing::debug!(target: "hysteria2::pool_close", %error, ?cause, "entry close failed");
+                tracing::debug!(
+                    target: "zero_transport::quic_pool_close",
+                    protocol = P::DISPLAY_NAME,
+                    %error,
+                    ?cause,
+                    "entry close failed"
+                );
             }
             result
-        })).await;
-        tracing::debug!(target: "hysteria2::pool_close", "entry closes returned");
+        }))
+        .await;
         let failures = results
             .into_iter()
             .filter_map(Result::err)
@@ -200,11 +224,9 @@ impl ResourceLifecycle for Owner {
                 );
             }
         }
-        tracing::debug!(target: "hysteria2::pool_close", "waiting for metadata owner receipts");
         for owner in &self.generation.metadata {
             report.append(owner.shutdown_after_registration_ack(end).await?);
         }
-        tracing::debug!(target: "hysteria2::pool_close", first_unfinished = ?report.unfinished.first(), "metadata owner receipts returned");
         if report.is_complete() {
             let retired_entries = std::mem::take(&mut *self.generation.entries.lock().unwrap());
             let retired_failures = std::mem::take(&mut *self.generation.failures.lock().unwrap());
@@ -216,10 +238,9 @@ impl ResourceLifecycle for Owner {
     }
 }
 
-/// Returned errors remain the actual originals, bounded by the same live entry
-/// set. No failed entry/controller is removed or reported successfully closed.
 #[derive(Debug)]
 struct OriginalCloses(Vec<ChannelError>);
+
 impl std::fmt::Display for OriginalCloses {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} original entry closes incomplete", self.0.len())?;
@@ -229,6 +250,7 @@ impl std::fmt::Display for OriginalCloses {
         Ok(())
     }
 }
+
 impl std::error::Error for OriginalCloses {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.0

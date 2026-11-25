@@ -1,10 +1,16 @@
 //! Logical association continuity never authorizes overlapping old/new originals.
+
 use super::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
+};
+
 struct Current {
     channel: Arc<OwnedUdpChannel>,
     stop: CancellationToken,
 }
+
 pub(super) struct Shared {
     current: Mutex<Option<Current>>,
     retiring: Mutex<Option<Arc<OwnedUdpChannel>>>,
@@ -18,10 +24,12 @@ pub(super) struct Shared {
     pub(super) stop: CancellationToken,
     reads: AtomicUsize,
 }
+
 struct ReadView {
     shared: Arc<Shared>,
     channel: Option<Arc<OwnedUdpChannel>>,
 }
+
 impl Drop for ReadView {
     fn drop(&mut self) {
         drop(self.channel.take());
@@ -29,6 +37,7 @@ impl Drop for ReadView {
         self.shared.changed.notify_waiters();
     }
 }
+
 impl Shared {
     pub(super) fn new(
         channel: OwnedUdpChannel,
@@ -55,10 +64,12 @@ impl Shared {
             reads: AtomicUsize::new(0),
         })
     }
+
     pub(super) fn returned(&self) {
         self.views.fetch_sub(1, Ordering::AcqRel);
         self.changed.notify_waiters();
     }
+
     fn retire(&self, channel: &Arc<OwnedUdpChannel>) {
         let stop = {
             let mut current = self.current.lock().unwrap();
@@ -83,6 +94,7 @@ impl Shared {
             self.changed.notify_waiters();
         }
     }
+
     fn settle_retiring(&self) -> Result<(), ChannelError> {
         let retired = self.retiring.lock().unwrap().take();
         if let Some(channel) = retired {
@@ -103,6 +115,7 @@ impl Shared {
         }
         Ok(())
     }
+
     pub(super) fn release(&self) -> Result<CloseReport, ChannelError> {
         let current = self
             .current
@@ -121,6 +134,7 @@ impl Shared {
             .take()
             .ok_or_else(|| error(Stage::Close, Reason::Internal))
     }
+
     pub(super) async fn send(
         self: &Arc<Self>,
         target: zero_core::request::Destination,
@@ -159,7 +173,6 @@ impl Shared {
             }
             retries += 1;
             let end = Instant::now() + Duration::from_secs(30);
-            // A receiver must actually return its original channel guard.
             while self.reads.load(Ordering::Acquire) != 0 {
                 let changed = self.changed.notified();
                 tokio::pin!(changed);
@@ -167,7 +180,18 @@ impl Shared {
                 if self.reads.load(Ordering::Acquire) == 0 {
                     break;
                 }
-                tokio::select! {biased;_=self.stop.cancelled()=>return Err(fail(Reason::Cancelled)),result=tokio::time::timeout_at(end,changed)=>{result.map_err(|source|SendFailure::new(error(Stage::Close,Reason::Timeout).with_source(source),DeliveryState::NotSubmitted))?;}}
+                tokio::select! {
+                    biased;
+                    _ = self.stop.cancelled() => return Err(fail(Reason::Cancelled)),
+                    result = tokio::time::timeout_at(end, changed) => {
+                        result.map_err(|source| {
+                            SendFailure::new(
+                                error(Stage::Close, Reason::Timeout).with_source(source),
+                                DeliveryState::NotSubmitted,
+                            )
+                        })?;
+                    }
+                }
             }
             self.settle_retiring()
                 .map_err(|error| SendFailure::new(error, DeliveryState::NotSubmitted))?;
@@ -175,7 +199,18 @@ impl Shared {
                 .generation
                 .upgrade()
                 .ok_or_else(|| fail(Reason::Revoked))?;
-            let auth = tokio::select! {biased;_=self.stop.cancelled()=>return Err(fail(Reason::Cancelled)),result=generation.acquire(self.profile,self.binding.clone(),Some(self.dns_generation),None,self.stop.clone(),end)=>result.map_err(|error|SendFailure::new(error,DeliveryState::NotSubmitted))?};
+            let auth = tokio::select! {
+                biased;
+                _ = self.stop.cancelled() => return Err(fail(Reason::Cancelled)),
+                result = generation.acquire(
+                    self.profile,
+                    self.binding.clone(),
+                    Some(self.dns_generation),
+                    None,
+                    self.stop.clone(),
+                    end,
+                ) => result.map_err(|error| SendFailure::new(error, DeliveryState::NotSubmitted))?,
+            };
             let channel = auth
                 .open_udp()
                 .await
@@ -187,6 +222,7 @@ impl Shared {
             self.changed.notify_waiters();
         }
     }
+
     pub(super) async fn receive(
         self: &Arc<Self>,
     ) -> Result<(zero_core::Address, u16, Vec<u8>), ChannelError> {
@@ -207,10 +243,11 @@ impl Shared {
                     shared: self.clone(),
                     channel: Some(channel),
                 };
-                let result = tokio::select! {biased;
-                    _=self.stop.cancelled()=>return Err(error(Stage::Receive,Reason::Cancelled)),
-                    _=stop.cancelled()=>None,
-                    result=view.channel.as_ref().unwrap().receive()=>Some(result),
+                let result = tokio::select! {
+                    biased;
+                    _ = self.stop.cancelled() => return Err(error(Stage::Receive, Reason::Cancelled)),
+                    _ = stop.cancelled() => None,
+                    result = view.channel.as_ref().unwrap().receive() => Some(result),
                 };
                 let result = match result {
                     Some(Ok(packet)) => Ok(Some(packet)),
@@ -230,16 +267,21 @@ impl Shared {
                     return Ok(packet);
                 }
             } else {
-                tokio::select! {biased;_=self.stop.cancelled()=>return Err(error(Stage::Receive,Reason::Cancelled)),_=changed=>{}}
+                tokio::select! {
+                    biased;
+                    _ = self.stop.cancelled() => return Err(error(Stage::Receive, Reason::Cancelled)),
+                    _ = changed => {}
+                }
             }
         }
     }
+
     fn check_dns(&self) -> Result<(), ChannelError> {
         let generation = self
             .generation
             .upgrade()
             .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
-        if generation.upstreams[self.profile].carrier_dns_generation() != self.dns_generation {
+        if generation.carrier_dns_generation(self.profile) != self.dns_generation {
             return Err(error(Stage::Prepare, Reason::StalePlan));
         }
         Ok(())
