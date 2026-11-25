@@ -35,7 +35,7 @@ fn owner(
         scope.registrar().scope_identity(),
         "sdk-ring-test".into(),
         PacketDeviceBinding::Create {
-            name: Some(name),
+            name: Some(name.into()),
             addresses: vec![(
                 "192.0.2.1".parse().unwrap(),
                 "255.255.255.0".parse().unwrap(),
