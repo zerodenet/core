@@ -11,7 +11,10 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::Instant;
 use zero_core::{
-    component::{ComponentId, ComponentRoleIds, NetworkGeneration, OutboundId, ResourceGeneration},
+    component::{
+        ComponentId, ComponentInstanceId, ComponentRoleIds, NetworkGeneration, OutboundId,
+        ResourceGeneration,
+    },
     request::{Destination, ServiceOrigin, ServicePurpose, ServiceRequestFacts},
     Address,
 };
@@ -29,11 +32,13 @@ use zero_platform_tokio::contract::{
 };
 use zero_traits::DialPolicy;
 use zero_transport::{
+    pooled_driver::PooledStream,
     runner::{
-        GuardedCall, HandshakeError, LifecycleChain, StatelessOutboundFactory,
-        StatelessOutboundOptions, StreamProtocolHandshake,
+        GuardedCall, HandshakeError, LifecycleChain, PooledBoundLeaf, PooledRoleFactory,
+        PooledRoleOptions, PooledRoleProtocol, StatelessOutboundFactory, StatelessOutboundOptions,
+        StreamProtocolHandshake,
     },
-    TcpRelayStream,
+    RuntimeError, TcpRelayStream,
 };
 
 struct NoResources;
@@ -459,4 +464,141 @@ async fn stateless_outbound_factory_runs_prepare_open_handshake_and_shutdown() {
         .err()
         .expect("shutdown must revoke admissions");
     assert_eq!(err.reason, Reason::Revoked);
+}
+
+struct DummyPooledOptions {
+    pool_owner: ComponentId,
+    dial: DialPolicy,
+    identity: Arc<[u8]>,
+    canary: Arc<()>,
+}
+
+impl PooledRoleOptions for DummyPooledOptions {
+    fn pool_owner(&self) -> ComponentId {
+        self.pool_owner
+    }
+
+    fn dial(&self) -> &DialPolicy {
+        &self.dial
+    }
+
+    fn static_identity(&self) -> Arc<[u8]> {
+        self.identity.clone()
+    }
+}
+
+#[derive(Clone)]
+struct DummyBoundLeaf {
+    pool: ComponentInstanceId,
+    _canary: Arc<()>,
+}
+
+impl PooledBoundLeaf for DummyBoundLeaf {
+    fn pool_instance(&self) -> Option<ComponentInstanceId> {
+        Some(self.pool)
+    }
+
+    async fn open_stream(
+        &self,
+        _destination: Destination,
+        _context: &OpenContext,
+    ) -> Result<PooledStream, RuntimeError> {
+        Err(RuntimeError::Io(io::Error::other("mock pool unavailable")))
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct DummyPooledProtocol;
+
+impl PooledRoleProtocol for DummyPooledProtocol {
+    type Options = DummyPooledOptions;
+    type BoundLeaf = DummyBoundLeaf;
+
+    fn bind_leaf(
+        &self,
+        options: &DummyPooledOptions,
+        pool: ComponentInstanceId,
+    ) -> Result<DummyBoundLeaf, RuntimeError> {
+        Ok(DummyBoundLeaf {
+            pool,
+            _canary: options.canary.clone(),
+        })
+    }
+}
+
+#[tokio::test]
+async fn pooled_role_factory_validates_dependencies_and_drops_weak_resources_on_owner_drop() {
+    let factory = PooledRoleFactory::<DummyPooledProtocol>::stream_only();
+    let canary = Arc::new(());
+    let options = Arc::new(DummyPooledOptions {
+        pool_owner: ComponentId(42),
+        dial: DialPolicy::default(),
+        identity: Arc::from(&b"dummy-pooled-role"[..]),
+        canary: canary.clone(),
+    });
+    assert_eq!(
+        factory.describe(&options).dependencies,
+        vec![ComponentId(42)]
+    );
+
+    let scope = TaskScope::new(
+        tokio::runtime::Handle::current(),
+        NonZeroUsize::new(1).unwrap(),
+    );
+
+    // Missing pool dependency must be rejected with StalePlan before start.
+    let bad_build = BuildContext {
+        component: ComponentId(10),
+        generation: ResourceGeneration(1),
+        dependencies: Arc::from([]),
+        roles: ComponentRoleIds::default(),
+        resources: Arc::new(NoResources),
+        tasks: scope.registrar(),
+        cancel: CancellationToken::new(),
+        background_carrier: None,
+    };
+    let err = factory
+        .build(options.clone(), bad_build)
+        .err()
+        .expect("missing dependency must fail build");
+    assert_eq!(err.reason, Reason::StalePlan);
+
+    let good_build = BuildContext {
+        component: ComponentId(10),
+        generation: ResourceGeneration(1),
+        dependencies: Arc::from([ComponentInstanceId {
+            component: ComponentId(42),
+            generation: ResourceGeneration(3),
+        }]),
+        roles: ComponentRoleIds::default(),
+        resources: Arc::new(NoResources),
+        tasks: scope.registrar(),
+        cancel: CancellationToken::new(),
+        background_carrier: None,
+    };
+    let mut instance = factory.build(options, good_build).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    instance.lifecycle.start(deadline).await.unwrap();
+    assert_eq!(
+        Arc::strong_count(&canary),
+        3,
+        "test + RoleOwner options + bound leaf"
+    );
+
+    // Cached stream role handle retains only Weak references: revoking and dropping
+    // lifecycle releases both options and bound leaf even while stream_role lives!
+    let stream_role = instance.roles.stream.take().unwrap();
+    instance.lifecycle.revoke(CloseReason::Shutdown);
+    assert_eq!(
+        Arc::strong_count(&canary),
+        2,
+        "revoke immediately drops the bound leaf"
+    );
+    drop(instance.lifecycle);
+    assert_eq!(
+        Arc::strong_count(&canary),
+        1,
+        "cached role handle must never pin retired options or protocol resources"
+    );
+    drop(stream_role);
 }

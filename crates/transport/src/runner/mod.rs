@@ -12,6 +12,7 @@ mod call;
 ))]
 mod carrier;
 mod lifecycle;
+mod pooled_role;
 mod stateless;
 
 pub use crate::pooled_driver::ExclusiveIo;
@@ -27,6 +28,10 @@ pub use carrier::{
     connect_stateless_transport_stack, wrap_stateless_carrier, StatelessTransportStack,
 };
 pub use lifecycle::LifecycleChain;
+pub use pooled_role::{
+    PooledBoundLeaf, PooledDatagramProtocol, PooledRoleFactory, PooledRoleOptions,
+    PooledRoleProtocol, WithPooledDatagram,
+};
 pub use stateless::{
     DatagramProtocolHandshake, HandshakeError, NoDatagram, StatelessOutboundFactory,
     StatelessOutboundOptions, StreamProtocolHandshake, WithDatagram,
