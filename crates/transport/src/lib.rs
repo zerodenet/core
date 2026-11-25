@@ -34,6 +34,7 @@ pub mod quic;
 pub mod quic_initial;
 pub mod rate_limit;
 pub mod relay_connector;
+pub mod runner;
 #[cfg(feature = "split_http")]
 pub mod split_http;
 pub mod stream;

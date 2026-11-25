@@ -83,15 +83,15 @@ async fn relay_tcp_through_trojan_carrier(carrier: TrojanCarrier) {
                 "protocol":{{
                     "type":"trojan",
                     "password":"{PASSWORD}",
-                    "tls":{{"cert_path":"{}","key_path":"{}"}},
+                    "tls":{{"cert_path":{},"key_path":{}}},
                     {carrier_json}
                 }}
             }}],
             "outbounds":[],
             "route":{{"rules":[],"final":{{"type":"direct"}}}}
         }}"#,
-        tls.cert_path.display(),
-        tls.key_path.display(),
+        serde_json::to_string(&tls.cert_path).unwrap(),
+        serde_json::to_string(&tls.key_path).unwrap(),
     ))
     .expect("parse upstream config");
     let upstream_handle = spawn_engine(Engine::new(upstream_config).expect("build upstream"));

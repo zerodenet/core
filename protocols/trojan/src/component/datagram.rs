@@ -3,14 +3,19 @@ mod control;
 mod rx;
 mod tx;
 use std::sync::{Arc, Mutex};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Notify;
 use zero_core::component::{AssociationId, SessionId};
 use zero_platform_tokio::contract::{
     admission::SessionAdmission,
-    context::{with_deadline, ConnectFact, OpenContext},
+    context::{ConnectFact, OpenContext},
     datagram::{DatagramLimits, DatagramRequest, DatagramSession},
     stream::BoxStream,
     CancellationToken, ChannelError, DeliveryState, Reason, Stage,
+};
+use zero_transport::{
+    runner::{DatagramProtocolHandshake, GuardedCall, HandshakeError},
+    TcpRelayStream,
 };
 pub(super) use {control::Control, rx::Rx, tx::Tx};
 struct State {
@@ -88,63 +93,55 @@ pub(super) fn session(
     }
 }
 
-impl zero_platform_tokio::contract::datagram::DatagramOutbound for super::Outbound {
+impl DatagramProtocolHandshake<super::Options> for super::TrojanProtocol {
+    type Prepared = Vec<u8>;
     type Tx = Tx;
     type Rx = Rx;
     type Control = Control;
-    async fn open(
+
+    fn enforce_dial_policy(&self) -> bool {
+        false
+    }
+
+    fn prepare_datagram(
         &self,
-        request: DatagramRequest,
-        context: OpenContext,
-    ) -> Result<DatagramSession<Tx, Rx, Control>, ChannelError> {
-        let user = self.admission.check(&context)?;
+        options: &super::Options,
+        request: &DatagramRequest,
+    ) -> Result<Vec<u8>, HandshakeError> {
         let zero_core::request::DatagramTargets::Fixed(target) = &request.targets else {
-            return Err(self.admission.error(
-                user,
-                Stage::Prepare,
-                Reason::Unsupported,
-                DeliveryState::NotSubmitted,
-            ));
+            return Err(HandshakeError::unsupported());
         };
-        let bytes = crate::shared::build_request_with_hash(
-            &self.options.password,
+        crate::shared::build_request_with_hash(
+            &options.password,
             &target.address,
             target.port,
             crate::shared::CMD_UDP,
         )
-        .map_err(|source| {
-            self.admission
-                .error(
-                    user,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
-        })?;
-        let mut io = self.open_transport(&context, user).await?;
-        let submitting = async {
-            use tokio::io::AsyncWriteExt;
-            io.write_all(&bytes).await?;
-            io.flush().await?;
-            Ok::<(), std::io::Error>(())
-        };
-        tokio::select! {biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(user,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(user,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,submitting)=>result.map_err(|source|self.admission.error(user,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source|self.admission.error(user,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
-        if let Some(observer) = &context.observer {
-            observer.record(user, ConnectFact::CarrierReady);
-            observer.record(user, ConnectFact::RequestSubmitted);
-            observer.protocol_traffic(user, 0, bytes.len() as u64);
+        .map_err(HandshakeError::invalid_config)
+    }
+
+    async fn handshake_datagram(
+        &self,
+        _options: &super::Options,
+        mut io: TcpRelayStream,
+        bytes: Vec<u8>,
+        request: DatagramRequest,
+        context: OpenContext,
+        admission: Arc<SessionAdmission>,
+        user: Option<SessionId>,
+    ) -> Result<DatagramSession<Tx, Rx, Control>, ChannelError> {
+        {
+            let call = GuardedCall::from_admitted(&admission, &context, user);
+            call.run_io(Stage::Handshake, DeliveryState::Unknown, async {
+                io.write_all(&bytes).await?;
+                io.flush().await
+            })
+            .await?;
+            let facts = call.facts();
+            facts.record(ConnectFact::CarrierReady);
+            facts.record(ConnectFact::RequestSubmitted);
+            facts.protocol_traffic(0, bytes.len() as u64);
         }
-        Ok(session(
-            Box::pin(io),
-            request,
-            context,
-            self.admission.clone(),
-            user,
-        ))
+        Ok(session(Box::pin(io), request, context, admission, user))
     }
 }
