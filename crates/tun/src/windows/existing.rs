@@ -1,7 +1,7 @@
 //! A host-owned Wintun adapter: no creation, addressing or route changes.
 use super::{
     dad_state_is_ready, interface_luid, load_wintun, require_elevated_process, socket_address,
-    wait_for_address_ready_with, win32_result,
+    wait_for_address_ready_with, win32_result, wintun,
 };
 use std::{
     future::Future,
@@ -218,9 +218,6 @@ impl AsyncWrite for ExistingWindowsTun {
 pub(super) fn buffer_full(error: &wintun::Error) -> bool {
     match error {
         wintun::Error::Io(error) => error.raw_os_error() == Some(ERROR_BUFFER_OVERFLOW as i32),
-        wintun::Error::WindowsCore(error) => {
-            error.code().0 as u32 == (0x80070000 | ERROR_BUFFER_OVERFLOW)
-        }
         _ => false,
     }
 }

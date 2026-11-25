@@ -10,7 +10,7 @@ repository.workspace = true
 [features]
 default = ["device"]
 packet-memory = ["dep:tokio", "dep:zero-traits"]
-device = ["packet-memory", "dep:fs2", "dep:ipnet", "dep:serde", "dep:serde_json", "dep:tracing", "dep:libc", "dep:wintun", "dep:windows-sys"]
+device = ["packet-memory", "dep:fs2", "dep:ipnet", "dep:serde", "dep:serde_json", "dep:tracing", "dep:libc", "dep:windows-sys"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
@@ -19,8 +19,7 @@ libc = { version = "0.2", optional = true }
 libc = { version = "0.2", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-wintun = { version = "0.4", optional = true }
-windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_WindowsFilteringPlatform", "Win32_Networking_WinSock", "Win32_Security", "Win32_System_Rpc", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_WindowsFilteringPlatform", "Win32_Networking_WinSock", "Win32_Security", "Win32_System_LibraryLoader", "Win32_System_Rpc", "Win32_System_Threading"] }
 
 [dependencies]
 fs2 = { workspace = true, optional = true }

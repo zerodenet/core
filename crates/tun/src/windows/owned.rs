@@ -4,6 +4,7 @@ mod close;
 mod io_view;
 mod reader;
 mod ring;
+use super::wintun;
 use crate::{OwnedTunIdentity, TunCloseReceipt};
 pub use io_view::OwnedWintunIo;
 pub use reader::{

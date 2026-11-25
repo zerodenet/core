@@ -912,7 +912,6 @@ fn vendor_directory_and_crates_io_patches_are_frozen_to_shrinking_allowlist() {
         "quinn-proto",
         "quinn-udp",
         "rustls",
-        "wintun",
     ];
 
     let root = workspace_root();

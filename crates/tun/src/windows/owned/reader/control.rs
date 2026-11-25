@@ -1,6 +1,6 @@
 //! The original SDK reader's own reversible wake event, not a watcher/thread.
 mod native;
-use crate::packet_memory::NativeReadGrant;
+use crate::{packet_memory::NativeReadGrant, windows::wintun};
 use std::{
     io,
     sync::{
@@ -228,7 +228,7 @@ impl OwnedWintunReadControl {
     pub(super) fn wait(&self, session: &wintun::Session) -> io::Result<()> {
         let event = self.wait_handle()?;
         let read = session.get_read_wait_event().map_err(io::Error::from)?;
-        let handles = [read.0 as HANDLE, event as HANDLE];
+        let handles = [read, event as HANDLE];
         // SAFETY: both originals outlive this actual reader; the host consumes
         // its real Scope join before it can close this control or the SDK session.
         let result =

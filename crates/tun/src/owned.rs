@@ -1,4 +1,6 @@
 //! Explicit closure of the exact handle owned by this TUN instance.
+#[cfg(target_os = "windows")]
+use crate::windows::wintun;
 use std::{
     io,
     sync::{Arc, OnceLock},

@@ -44,6 +44,8 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 
 use crate::TunDevice;
 
+pub(crate) mod wintun;
+pub use wintun::{CloseAdapterReceipt, EndSessionReceipt};
 mod existing;
 pub use existing::ExistingWindowsTun;
 mod owned;
