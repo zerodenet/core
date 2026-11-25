@@ -263,7 +263,12 @@ fresh checkouts, tests and CI must not require them.
 ## VLESS encryption ownership
 
 - VLESS Encryption parsing, ML-KEM/X25519 exchanges, key chains, ticket/replay lifetime, padding and cancellation-safe records live in `protocols/vless/src/encryption/`. Config delegates to its validation-only parser. The protocol transport plans apply the cipher after opening each logical carrier and before VLESS framing; proxy adapters only forward the configuration. Encrypted MUX pools are isolated by protocol-owned profile identity and retired on reload. Vision bypass removes only the encryption layer, preserving the carrier and random header mask.
-- `vendor/blake3` is pinned to 1.8.5 and adds only a byte-context derive-key constructor. Keep the original licenses and upstream algorithm; no VLESS behavior belongs in the vendored hash implementation.
+- Binary-context BLAKE3 key derivation for VLESS Encryption lives in `protocols/vless/src/encryption/blake3_context.rs` and feeds standard upstream crates.io `blake3` (`blake3::hazmat::HasherExt::new_from_context_key`). Do not re-vendor `blake3`.
+
+## Third-party vendor boundary (red line)
+
+- `vendor/` is strictly frozen to a monotonically shrinking allowlist enforced by `tests/workspace_architecture.rs`. NEVER add new crates to `vendor/` or `[patch.crates-io]` to satisfy `RuntimeHost` lifecycle/close receipts, cancellation semantics, memory accounting, or new protocol integration; adapt third-party resource boundaries externally in `zero-platform-tokio` or `zero-transport::runner` instead.
+- Never place first-party crates under `vendor/`; internal workspace crates live under `crates/*` or `protocols/*` (for example `crates/tls-legacy-crypto`). When retiring an existing vendored dependency, shrink the allowlist in `tests/workspace_architecture.rs` in the same change.
 
 - HTTP carrier `ed` parsing, deferred upgrades and header-prefix replay belong to `crates/transport/src/{http_early_data,http_upgrade,ws}`. WS first-write state and HTTPUpgrade response state must survive cancellation and stay bounded. Do not move protocol request bytes into proxy adapters to implement Early Data.
 

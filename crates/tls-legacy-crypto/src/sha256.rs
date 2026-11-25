@@ -41,7 +41,7 @@ pub(super) fn open(
     aad: &[u8; 11],
     record: &[u8],
 ) -> Result<Zeroizing<Vec<u8>>, RecordError> {
-    if record.len() < 64 || (record.len() - 16) % 16 != 0 {
+    if record.len() < 64 || !(record.len() - 16).is_multiple_of(16) {
         return Err(RecordError);
     }
     let iv: [u8; 16] = record[..16].try_into().map_err(|_| RecordError)?;

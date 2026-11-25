@@ -58,6 +58,7 @@ members = [
     "crates/router",
     "crates/rule",
     "crates/platform/tokio",
+    "crates/tls-legacy-crypto",
     "crates/ztls",
     "crates/transport",
     "protocols/socks5",
@@ -77,7 +78,7 @@ members = [
     "crates/tun",
     "crates/stack",
 ]
-exclude = ["vendor/quinn", "vendor/quinn-udp", "vendor/quinn-proto", "vendor/h3-quinn", "vendor/blake3", "vendor/h2", "vendor/hyper", "vendor/gotatun", "vendor/wintun", "vendor/tokio-util"]
+exclude = ["vendor/quinn", "vendor/quinn-udp", "vendor/quinn-proto", "vendor/h3-quinn", "vendor/h2", "vendor/hyper", "vendor/gotatun", "vendor/wintun", "vendor/tokio-util"]
 resolver = "2"
 
 [workspace.package]
@@ -166,7 +167,6 @@ h2 = { path = "vendor/h2" }
 hyper = { path = "vendor/hyper" }
 rustls = { path = "vendor/rustls" }
 openssl-sys = { path = "vendor/openssl-sys-0.9.117-openssl4" }
-blake3 = { path = "vendor/blake3" }
 quinn = { path = "vendor/quinn" }
 quinn-proto = { path = "vendor/quinn-proto" }
 quinn-udp = { path = "vendor/quinn-udp" }

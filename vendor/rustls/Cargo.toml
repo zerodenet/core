@@ -235,5 +235,6 @@ check-cfg = [
 ]
 
 [dependencies.rustls-legacy-crypto]
-path = "../rustls-legacy-crypto"
+package = "zero-tls-legacy-crypto"
+path = "../../crates/tls-legacy-crypto"
 optional = true

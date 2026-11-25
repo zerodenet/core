@@ -9,13 +9,13 @@ use aes_gcm::{
 use chacha20poly1305::ChaCha20Poly1305;
 use std::io;
 
+mod blake3_context;
+
 pub(super) fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 pub(super) fn derive(context: &[u8], key: &[u8]) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new_derive_key_bytes(context);
-    hasher.update(key);
-    *hasher.finalize().as_bytes()
+    blake3_context::derive_key_bytes(context, key)
 }
 pub(super) type Ctr = ctr::Ctr128BE<aes::Aes256>;
 pub(super) fn ctr(key: &[u8], iv: &[u8; 16]) -> Ctr {

@@ -1,4 +1,4 @@
-use rustls_legacy_crypto::{Algorithm, RecordKey};
+use zero_tls_legacy_crypto::{Algorithm, RecordKey};
 #[test]
 fn cbc_rejects_corruption_replay_and_short_records_at_every_block_boundary() {
     for algorithm in [
@@ -36,13 +36,13 @@ fn cbc_rejects_corruption_replay_and_short_records_at_every_block_boundary() {
 #[test]
 fn finite_field_exchange_rejects_small_order_public_keys() {
     for bits in [2048, 3072] {
-        let first = rustls_legacy_crypto::dh::Key::new(bits).unwrap();
-        let second = rustls_legacy_crypto::dh::Key::new(bits).unwrap();
+        let first = zero_tls_legacy_crypto::dh::Key::new(bits).unwrap();
+        let second = zero_tls_legacy_crypto::dh::Key::new(bits).unwrap();
         let a = first.public_key().to_vec();
         let b = second.public_key().to_vec();
         assert_eq!(*first.complete(&b).unwrap(), *second.complete(&a).unwrap());
         for invalid in [&[0][..], &[1][..], &[][..]] {
-            assert!(rustls_legacy_crypto::dh::Key::new(bits)
+            assert!(zero_tls_legacy_crypto::dh::Key::new(bits)
                 .unwrap()
                 .complete(invalid)
                 .is_err());

@@ -1,0 +1,22 @@
+[package]
+autotests = false
+name = "zero-tls-legacy-crypto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license = "Apache-2.0 OR ISC"
+repository.workspace = true
+homepage.workspace = true
+description = "Safe, bounded TLS 1.2 CBC record adapter for AWS-LC"
+
+[dependencies]
+aws-lc-sys = "=0.40.0"
+zeroize = "1"
+aws-lc-rs = { version = "=1.16.3", default-features = false, features = ["aws-lc-sys", "prebuilt-nasm"] }
+subtle = "2.6"
+
+# Integration suites are explicit; scripts/check-test-layout.py guards coverage.
+
+[[test]]
+name = "tls_legacy_crypto_contracts"
+path = "tests/suites/tls_legacy_crypto_contracts.rs"

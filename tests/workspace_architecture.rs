@@ -883,7 +883,10 @@ fn runtime_host_has_no_production_dependency_on_proxy_or_protocol_implementation
         ] {
             // This one import is explicitly test-only reuse of the real Direct factory.
             if forbidden == "zero_proxy::" && path.ends_with("component/mod.rs") {
-                assert!(source.contains("#[cfg(test)]\npub use zero_proxy::component"));
+                assert!(
+                    source.contains("#[cfg(test)]\npub use zero_proxy::component")
+                        || source.contains("#[cfg(test)]\r\npub use zero_proxy::component")
+                );
                 continue;
             }
             assert!(
@@ -893,4 +896,100 @@ fn runtime_host_has_no_production_dependency_on_proxy_or_protocol_implementation
             );
         }
     }
+}
+
+#[test]
+fn vendor_directory_and_crates_io_patches_are_frozen_to_shrinking_allowlist() {
+    // Architectural red line: `vendor/` is monotonically shrinking. Never add new
+    // forked dependencies here (especially not to satisfy host close receipts or
+    // new protocol integration), and never store first-party crates in `vendor/`.
+    const ALLOWED_VENDOR_DIRS: &[&str] = &[
+        "gotatun",
+        "h2",
+        "h3-quinn",
+        "hyper",
+        "openssl-sys-0.9.117-openssl4",
+        "quinn",
+        "quinn-proto",
+        "quinn-udp",
+        "rustls",
+        "tokio-util",
+        "wintun",
+    ];
+
+    let root = workspace_root();
+    let mut actual_dirs = fs::read_dir(root.join("vendor"))
+        .expect("read vendor directory")
+        .map(|entry| {
+            let entry = entry.expect("vendor entry");
+            assert!(
+                entry.path().is_dir(),
+                "unexpected non-directory in vendor/: {}",
+                entry.path().display()
+            );
+            entry
+                .file_name()
+                .into_string()
+                .expect("utf-8 vendor directory name")
+        })
+        .collect::<Vec<_>>();
+    actual_dirs.sort_unstable();
+    assert_eq!(
+        actual_dirs, ALLOWED_VENDOR_DIRS,
+        "vendor/ directories must match the exact shrinking allowlist (never add new vendored crates; shrink ALLOWED_VENDOR_DIRS when retiring one)"
+    );
+
+    let root_manifest = read(&root.join("Cargo.toml"));
+    let mut in_patch_section = false;
+    let mut patched_dirs = Vec::new();
+    for raw_line in root_manifest.lines() {
+        let line = raw_line.trim();
+        if line == "[patch.crates-io]" {
+            in_patch_section = true;
+            continue;
+        }
+        if in_patch_section && line.starts_with('[') {
+            break;
+        }
+        if !in_patch_section || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (_, rhs) = line.split_once('=').expect("patch assignment");
+        let start = rhs
+            .find("\"vendor/")
+            .unwrap_or_else(|| panic!("non-vendor [patch.crates-io] entry: {line}"))
+            + "\"vendor/".len();
+        let rest = &rhs[start..];
+        let end = rest.find('"').expect("closing quote");
+        patched_dirs.push(rest[..end].to_owned());
+    }
+    patched_dirs.sort_unstable();
+    assert_eq!(
+        patched_dirs, ALLOWED_VENDOR_DIRS,
+        "[patch.crates-io] must match the exact shrinking vendor allowlist"
+    );
+
+    for group in ["crates", "protocols"] {
+        for entry in collect_manifests(&root.join(group)) {
+            let manifest = read(&entry);
+            assert!(
+                !manifest.contains("vendor/"),
+                "{} must not depend on vendor/ via path; first-party crates belong in crates/ or protocols/",
+                entry.display()
+            );
+        }
+    }
+}
+
+fn collect_manifests(root: &Path) -> Vec<PathBuf> {
+    let mut manifests = Vec::new();
+    for entry in fs::read_dir(root).expect("read directory") {
+        let path = entry.expect("entry").path();
+        if path.is_dir() {
+            manifests.extend(collect_manifests(&path));
+        } else if path.file_name().is_some_and(|name| name == "Cargo.toml") {
+            manifests.push(path);
+        }
+    }
+    manifests
 }
