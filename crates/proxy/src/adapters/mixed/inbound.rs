@@ -35,7 +35,7 @@ impl ComponentFactory for Factory {
     ) -> Result<ComponentInstance, BuildError> {
         let resources = context.resources.clone();
         let (lifecycle, source) = tcp::source(
-            options.listen.clone(),
+            options.listen().clone(),
             context.resources,
             context.cancel,
             move |socket| Connection {

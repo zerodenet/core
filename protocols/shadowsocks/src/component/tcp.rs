@@ -11,27 +11,29 @@ use zero_platform_tokio::contract::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
         ResourceOwner, RoleKind,
     },
-    context::{with_deadline, ConnectFact, OpenContext},
-    lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle},
-    network::CarrierContext,
+    context::{ConnectFact, OpenContext},
+    lifecycle::{BuildError, CloseReport, ResourceLifecycle},
     stream::{
         erase_stream, BoxStream, ConnectRequest, Connected, PeerConfirmation, StreamOutbound,
     },
     ChannelError, CloseReason, DeliveryState, Reason, Stage,
 };
+use zero_transport::runner::{GuardedCall, LifecycleChain};
+
 pub struct StreamFactory;
+
 struct Outbound {
     options: Arc<StreamOptions>,
     admission: Arc<SessionAdmission>,
     replay: Option<ComponentInstanceId>,
 }
-struct Owner {
-    inner: SessionOwner,
+
+struct SecurityGuard {
     admission: Arc<SessionAdmission>,
     options: Arc<StreamOptions>,
     replay: Option<ComponentInstanceId>,
-    udp: Option<crate::component::udp::role::RoleOwner>,
 }
+
 impl ComponentFactory for StreamFactory {
     type Options = StreamOptions;
     fn describe(&self, options: &StreamOptions) -> ComponentSpec {
@@ -105,14 +107,17 @@ impl ComponentFactory for StreamFactory {
             ),
             None => (None, None),
         };
-        Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(Owner {
-                inner: owner,
+        let lifecycle = LifecycleChain::new()
+            .push_typed(SecurityGuard {
                 admission: admission.clone(),
                 options: options.clone(),
                 replay,
-                udp: udp_owner,
-            }),
+            })
+            .push_typed_opt(udp_owner)
+            .push_typed(owner)
+            .into_boxed();
+        Ok(ComponentInstance {
+            lifecycle,
             roles: ComponentRoles {
                 datagram: udp_role,
                 stream: Some(erase_stream(Outbound {
@@ -125,6 +130,7 @@ impl ComponentFactory for StreamFactory {
         })
     }
 }
+
 impl StreamOptions {
     fn replay_is_ready(&self, instance: Option<ComponentInstanceId>) -> bool {
         match (&self.prepared.replay, instance) {
@@ -136,8 +142,9 @@ impl StreamOptions {
         }
     }
 }
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
+
+impl ResourceLifecycle for SecurityGuard {
+    async fn start(&mut self, _: Instant) -> Result<(), BuildError> {
         self.options
             .prepared
             .udp_security
@@ -160,25 +167,14 @@ impl ResourceLifecycle for Owner {
                 DeliveryState::NotSubmitted,
             ));
         }
-        if let Some(udp) = &mut self.udp {
-            udp.start(deadline).await?;
-        }
-        self.inner.start(deadline).await
+        Ok(())
     }
-    fn revoke(&self, reason: CloseReason) {
-        self.inner.revoke(reason);
-        if let Some(udp) = &self.udp {
-            udp.revoke(reason);
-        }
-    }
-    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
-        let mut report = self.inner.shutdown(deadline).await?;
-        if let Some(udp) = &mut self.udp {
-            report.append(udp.shutdown(deadline).await?);
-        }
-        Ok(report)
+    fn revoke(&self, _: CloseReason) {}
+    async fn shutdown(&mut self, _: Instant) -> Result<CloseReport, BuildError> {
+        Ok(CloseReport::default())
     }
 }
+
 impl StreamOutbound for Outbound {
     type Stream = BoxStream;
     async fn connect(
@@ -186,26 +182,19 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
-        let session = self.admission.check(&context)?;
+        let call = GuardedCall::enter(&self.admission, &context, None)?;
         if !self.options.replay_is_ready(self.replay) {
-            return Err(self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            ));
+            return Err(call.error(Stage::Prepare, Reason::Revoked, DeliveryState::NotSubmitted));
         }
         if context.upstream.binding().dial != self.options.prepared.dial {
-            return Err(self.admission.error(
-                session,
+            return Err(call.error(
                 Stage::Prepare,
                 Reason::StalePlan,
                 DeliveryState::NotSubmitted,
             ));
         }
         if request.destination.port == 0 {
-            return Err(self.admission.error(
-                session,
+            return Err(call.error(
                 Stage::Prepare,
                 Reason::InvalidConfig,
                 DeliveryState::NotSubmitted,
@@ -217,48 +206,44 @@ impl StreamOutbound for Outbound {
             &[],
         )
         .map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
+            call.error(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            )
+            .with_source(source)
         })?;
-        let opened = context.upstream.open_stream(
-            self.options.prepared.endpoint.clone(),
-            CarrierContext {
-                session,
-                deadline: context.deadline,
-                cancel: context.cancel.clone(),
-            },
-        );
-        let io=tokio::select! {biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Dial,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Dial,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,opened)=>result.map_err(|source|self.admission.error(session,Stage::Dial,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|error|self.admission.attach(error,session))?;
+        let io = call
+            .open_stream(self.options.prepared.endpoint.clone())
+            .await?;
         let (mut io, observed) = carrier::Carrier::new(io);
         let handshake = self
             .options
             .prepared
             .config
             .establish_tcp_to(&mut io, &request.destination);
-        let handshake=tokio::select! {biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,handshake)=>result.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source| {
-            let mut error=self.admission.error(session,Stage::Handshake,Reason::Protocol,DeliveryState::Unknown);
-            if observed.written()==0 && context.upstream.binding().prefix.is_empty() {error.delivery=DeliveryState::NotSubmitted; error.retry=zero_platform_tokio::contract::RetryClass::BeforeSubmission;}
-            if let Some(source)=observed.error() {error.reason=Reason::Io; error.with_source(source)} else {error.with_source(source)}
-        })?;
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::CarrierReady);
-            observer.record(session, ConnectFact::RequestSubmitted);
-            observer.protocol_traffic(session, 0, observed.written());
-        }
+        let handshake = call
+            .run(Stage::Handshake, DeliveryState::Unknown, handshake)
+            .await?
+            .map_err(|source| {
+                let mut error =
+                    call.error(Stage::Handshake, Reason::Protocol, DeliveryState::Unknown);
+                if observed.written() == 0 && context.upstream.binding().prefix.is_empty() {
+                    error.delivery = DeliveryState::NotSubmitted;
+                    error.retry = zero_platform_tokio::contract::RetryClass::BeforeSubmission;
+                }
+                if let Some(source) = observed.error() {
+                    error.reason = Reason::Io;
+                    error.with_source(source)
+                } else {
+                    error.with_source(source)
+                }
+            })?;
+        let facts = call.facts();
+        facts.record(ConnectFact::CarrierReady);
+        facts.record(ConnectFact::RequestSubmitted);
+        facts.protocol_traffic(0, observed.written());
+        let session = call.session();
         let stream = self
             .options
             .prepared

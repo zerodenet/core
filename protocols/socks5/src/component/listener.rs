@@ -1,59 +1,61 @@
-//! One standard source for both commands, sharing the real TCP accepted owner.
+//! Standard SOCKS5 inbound source backed by [`StandardTcpInboundFactory`].
 use crate::transport::{Socks5InboundAcceptor, Socks5InboundUserRef};
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
-use std::{
-    collections::hash_map::RandomState,
-    hash::{BuildHasher, Hash, Hasher},
-    num::NonZeroUsize,
-    sync::OnceLock,
-};
+use std::num::NonZeroUsize;
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
     component::*,
-    context::InboundConnectionFacts,
-    inbound::{erase_inbound, tcp},
-    lifecycle::{erase_lifecycle, BuildError},
-    ChannelError, Impact, Reason, Stage,
+    context::{HandshakeContext, InboundConnectionFacts},
+    inbound::{AcceptedRequest, InboundHandshake},
+    lifecycle::BuildError,
+    BoxFuture, ChannelError, Impact, Reason, Stage,
+};
+use zero_transport::runner::{
+    StandardTcpInboundFactory, StandardTcpInboundOptions, StandardTcpInboundProtocol,
 };
 
-pub struct InboundOptions {
-    pub listen: Destination,
-    pub accepted: AcceptedTcpLimits,
-    pub max_bind_attempts: NonZeroUsize,
-    pub max_pending_sends: NonZeroUsize,
-    acceptor: Socks5InboundAcceptor,
-    identity: Arc<[u8]>,
-}
-impl InboundOptions {
-    pub fn source_limits(&self) -> InboundSourceLimits {
-        InboundSourceLimits {
-            accepted_sockets: self.accepted.max_sockets,
-            bind_attempts: self.max_bind_attempts,
-            pending_sends: self.max_pending_sends,
-            ..Default::default()
-        }
-    }
-    pub fn with_inbound_source_limits(
-        mut self,
-        limits: InboundSourceLimits,
-    ) -> Result<Self, ChannelError> {
-        let limits = limits.validate()?;
-        let mut identity = self.identity.to_vec();
-        identity.extend_from_slice(b"actual-source-limits-v1");
-        for value in [
-            limits.accepted_sockets,
-            limits.bind_attempts,
-            limits.pending_sends,
-        ] {
-            identity.extend_from_slice(&value.get().to_le_bytes());
-        }
-        self.identity = identity.into();
-        self.accepted.max_sockets = limits.accepted_sockets;
-        self.max_bind_attempts = limits.bind_attempts;
-        self.max_pending_sends = limits.pending_sends;
-        Ok(self)
+pub struct Socks5StandardInbound;
+
+impl StandardTcpInboundProtocol for Socks5StandardInbound {
+    type Staged = Socks5InboundAcceptor;
+    type Active = Socks5InboundAcceptor;
+
+    fn default_work_tasks(_staged: &Self::Staged) -> NonZeroUsize {
+        NonZeroUsize::new(2).unwrap()
     }
 
+    fn default_work_resources(_staged: &Self::Staged) -> usize {
+        2
+    }
+
+    fn extra_resources(options: &StandardTcpInboundOptions<Self>) -> Vec<ResourceDeclaration> {
+        vec![ResourceDeclaration::AcceptedDatagram {
+            max_sockets: NonZeroUsize::new(1).unwrap(),
+            max_pending_sends: options.source_limits().pending_sends,
+        }]
+    }
+
+    fn activate(staged: Self::Staged) -> Result<Self::Active, ChannelError> {
+        Ok(staged)
+    }
+
+    fn accept(
+        active: Self::Active,
+        socket: zero_platform_tokio::TokioSocket,
+        resources: Arc<dyn ResourceAccess>,
+        context: HandshakeContext,
+    ) -> BoxFuture<'static, Result<AcceptedRequest, ChannelError>> {
+        let facts = InboundConnectionFacts::from_stream(&socket);
+        Box::pin(
+            super::inbound::Connection::from_stream(Box::pin(socket), facts, active, resources)
+                .complete(context),
+        )
+    }
+}
+
+pub struct InboundOptions(StandardTcpInboundOptions<Socks5StandardInbound>);
+
+impl InboundOptions {
     pub fn new<'a>(
         listen: Destination,
         accepted: AcceptedTcpLimits,
@@ -69,113 +71,75 @@ impl InboundOptions {
             ));
         }
         let users: Vec<_> = users.into_iter().collect();
-        // Full credential/rate equality remains private and process-keyed.
-        // Descriptions and diagnostics never expose passwords or stable hashes.
-        static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
-        let mut identity = Vec::new();
-        for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
-            let mut hash = key.build_hasher();
-            listen.hash(&mut hash);
-            accepted.max_sockets.hash(&mut hash);
-            accepted.max_tasks_per_socket.hash(&mut hash);
-            accepted.max_resources_per_socket.hash(&mut hash);
-            max_bind_attempts.hash(&mut hash);
-            max_pending_sends.hash(&mut hash);
-            for user in &users {
-                (
-                    user.username,
-                    user.password,
-                    user.principal_key,
-                    user.up_bps,
-                    user.down_bps,
-                )
-                    .hash(&mut hash);
+        let mut private_identity = Vec::new();
+        for user in &users {
+            for field in [
+                user.username.as_bytes(),
+                user.password.as_bytes(),
+                user.principal_key.unwrap_or("").as_bytes(),
+            ] {
+                private_identity.extend_from_slice(&(field.len() as u64).to_le_bytes());
+                private_identity.extend_from_slice(field);
             }
-            identity.extend_from_slice(&hash.finish().to_le_bytes());
+            private_identity.push(u8::from(user.principal_key.is_some()));
+            private_identity.extend_from_slice(&user.up_bps.unwrap_or(0).to_le_bytes());
+            private_identity.push(u8::from(user.up_bps.is_some()));
+            private_identity.extend_from_slice(&user.down_bps.unwrap_or(0).to_le_bytes());
+            private_identity.push(u8::from(user.down_bps.is_some()));
         }
-        Ok(Self {
-            listen,
-            accepted,
-            max_bind_attempts,
-            max_pending_sends,
-            acceptor: Socks5InboundAcceptor::from_options_refs(users),
-            identity: identity.into(),
-        })
+        let acceptor = Socks5InboundAcceptor::from_options_refs(users);
+        let inner = StandardTcpInboundOptions::new(listen, acceptor, &private_identity)
+            .with_accepted_limits(accepted, max_bind_attempts, max_pending_sends);
+        Ok(Self(inner))
     }
+
+    pub fn listen(&self) -> &Destination {
+        self.0.listen()
+    }
+
+    pub fn source_limits(&self) -> InboundSourceLimits {
+        self.0.source_limits()
+    }
+
+    pub fn with_inbound_source_limits(
+        self,
+        limits: InboundSourceLimits,
+    ) -> Result<Self, ChannelError> {
+        self.0.with_inbound_source_limits(limits).map(Self)
+    }
+
     pub fn with_inbound_work_limits(
-        mut self,
+        self,
         tasks: NonZeroUsize,
         resources: usize,
     ) -> Result<Self, BuildError> {
-        if !(2..=4096).contains(&tasks.get()) || !(2..=65536).contains(&resources) {
-            return Err(ChannelError::new(
-                Stage::Prepare,
-                Reason::InvalidConfig,
-                Impact::Component,
-            ));
-        }
-        let mut identity = self.identity.to_vec();
-        identity.extend_from_slice(b"actual-inbound-work-limits-v1");
-        identity.extend_from_slice(&tasks.get().to_le_bytes());
-        identity.extend_from_slice(&resources.to_le_bytes());
-        self.identity = identity.into();
-        self.accepted.max_tasks_per_socket = tasks;
-        self.accepted.max_resources_per_socket = resources;
-        Ok(self)
+        self.0
+            .with_work_limits_bounded(tasks, resources, 2, 2)
+            .map(Self)
     }
+
     pub fn acceptor(&self) -> Socks5InboundAcceptor {
-        self.acceptor.clone()
+        self.0
+            .map_staged(Clone::clone)
+            .expect("cold SOCKS5 staged acceptor")
     }
 }
+
 pub struct InboundFactory;
+
 impl ComponentFactory for InboundFactory {
     type Options = InboundOptions;
+
     fn describe(&self, options: &InboundOptions) -> ComponentSpec {
-        ComponentSpec {
-            owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Inbound],
-            dependencies: vec![],
-            static_identity: options.identity.clone(),
-            resources: vec![
-                ResourceDeclaration::TcpListener {
-                    destination: options.listen.clone(),
-                    accepted: Some(options.accepted),
-                    max_bind_attempts: options.max_bind_attempts,
-                },
-                ResourceDeclaration::AcceptedDatagram {
-                    max_sockets: NonZeroUsize::new(1).unwrap(),
-                    max_pending_sends: options.max_pending_sends,
-                },
-            ],
-            task_limit: None,
-        }
+        StandardTcpInboundFactory::<Socks5StandardInbound>::new().describe(&options.0)
     }
+
     fn build(
         &self,
         options: Arc<InboundOptions>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        let resources = context.resources.clone();
-        let (lifecycle, source) = tcp::source(
-            options.listen.clone(),
-            context.resources,
-            context.cancel,
-            move |socket| {
-                let facts = InboundConnectionFacts::from_stream(&socket);
-                super::inbound::Connection::from_stream(
-                    Box::pin(socket),
-                    facts,
-                    options.acceptor(),
-                    resources.clone(),
-                )
-            },
-        );
-        Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(lifecycle),
-            roles: ComponentRoles {
-                inbound: Some(erase_inbound(source)),
-                ..Default::default()
-            },
-        })
+        let inner = Arc::new(options.0.take_into_owned()?);
+        StandardTcpInboundFactory::<Socks5StandardInbound>::new().build(inner, context)
     }
 }

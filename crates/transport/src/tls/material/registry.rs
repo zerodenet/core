@@ -1,35 +1,46 @@
-//! Existing protocol runtime metadata; weak entries grant no ownership or IO.
-use super::*;
-use std::{collections::HashMap, sync::Weak};
+//! Weak runtime census of client TLS CA recipes and bound ECH resolvers.
+
+use super::{component_error, ClientMaterial};
+use crate::tls::ech::EchConfigResolver;
+use std::{
+    collections::HashMap,
+    fmt, io,
+    sync::{Arc, Mutex, Weak},
+};
+use zero_core::component::ComponentInstanceId;
+use zero_platform_tokio::contract::ChannelError;
+
 #[derive(Clone, Default)]
-pub(crate) struct Registry(Arc<Mutex<HashMap<Vec<u8>, Weak<Census>>>>);
-impl std::fmt::Debug for Registry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VlessOriginalMaterialRecipes")
+pub struct ClientMaterialRegistry(Arc<Mutex<HashMap<Vec<u8>, Weak<Census>>>>);
+
+impl fmt::Debug for ClientMaterialRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientMaterialRecipes")
             .finish_non_exhaustive()
     }
 }
-type Resolver = dyn zero_transport::tls::ech::EchConfigResolver;
+
+type Resolver = dyn EchConfigResolver;
+
 struct Record {
     instance: ComponentInstanceId,
-    material: Weak<Material>,
+    material: Weak<ClientMaterial>,
     resolver: Option<Weak<Resolver>>,
 }
+
 pub(super) struct Census {
     records: Mutex<Vec<Record>>,
-    pub(super) cold: Mutex<HashMap<Vec<u8>, Weak<Material>>>,
+    pub(super) cold: Mutex<HashMap<Vec<u8>, Weak<ClientMaterial>>>,
 }
-pub(crate) struct BoundMaterial {
-    pub(crate) material: Arc<Material>,
-    pub(crate) resolver: Option<Arc<Resolver>>,
+
+pub struct BoundClientMaterial {
+    pub material: Arc<ClientMaterial>,
+    pub resolver: Option<Arc<Resolver>>,
 }
-impl Registry {
-    /// The original runtime's exact installed instance, including callers
-    /// which reconstruct a compatibility leaf over that same native MUX map.
-    pub(crate) fn bound(
-        &self,
-        instance: ComponentInstanceId,
-    ) -> std::io::Result<Option<BoundMaterial>> {
+
+impl ClientMaterialRegistry {
+    /// Lookup the bound immutable material and optional ECH resolver for `instance`.
+    pub fn bound(&self, instance: ComponentInstanceId) -> io::Result<Option<BoundClientMaterial>> {
         let roots = self
             .0
             .lock()
@@ -55,24 +66,25 @@ impl Registry {
                 let resolver = match resolver {
                     Some(Some(resolver)) => Some(resolver),
                     Some(None) => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::NotConnected,
-                            "original VLESS ECH owner retired",
+                        return Err(io::Error::new(
+                            io::ErrorKind::NotConnected,
+                            "original client ECH owner retired",
                         ))
                     }
                     None => None,
                 };
                 if found.is_some() {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "conflicting VLESS material instances",
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "conflicting client material instances",
                     ));
                 }
-                found = Some(BoundMaterial { material, resolver });
+                found = Some(BoundClientMaterial { material, resolver });
             }
         }
         Ok(found)
     }
+
     pub(super) fn access(&self, key: &[u8]) -> Arc<Census> {
         let mut roots = self.0.lock().unwrap();
         roots.retain(|_, root| root.strong_count() != 0);
@@ -87,8 +99,9 @@ impl Registry {
         root
     }
 }
+
 impl Census {
-    pub(super) fn previous(&self, instance: ComponentInstanceId) -> Option<Arc<Material>> {
+    pub(super) fn previous(&self, instance: ComponentInstanceId) -> Option<Arc<ClientMaterial>> {
         self.records
             .lock()
             .unwrap()
@@ -96,17 +109,19 @@ impl Census {
             .find(|record| record.instance == instance)
             .and_then(|record| record.material.upgrade())
     }
+
     pub(super) fn record(
         &self,
         instance: ComponentInstanceId,
-        material: &Arc<Material>,
+        material: &Arc<ClientMaterial>,
     ) -> Result<(), ChannelError> {
         self.record_bound(instance, material, None)
     }
+
     pub(super) fn record_bound(
         &self,
         instance: ComponentInstanceId,
-        material: &Arc<Material>,
+        material: &Arc<ClientMaterial>,
         resolver: Option<&Arc<Resolver>>,
     ) -> Result<(), ChannelError> {
         let mut records = self.records.lock().unwrap();
@@ -120,12 +135,12 @@ impl Census {
                 } {
                 Ok(())
             } else {
-                Err(error(instance))
+                Err(component_error(instance))
             };
         }
         records
             .try_reserve(1)
-            .map_err(|source| error(instance).with_source(source))?;
+            .map_err(|source| component_error(instance).with_source(source))?;
         records.push(Record {
             instance,
             material: Arc::downgrade(material),

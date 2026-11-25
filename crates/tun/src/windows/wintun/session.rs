@@ -69,17 +69,16 @@ impl std::error::Error for SessionNotAcquired {
 /// Shutdown-event creation failed after acquiring and explicitly ending the session.
 #[derive(Debug)]
 pub struct SessionStartError {
-    ended: EndSessionReceipt,
+    _ended: EndSessionReceipt,
     source: io::Error,
 }
 
 impl SessionStartError {
     pub(super) fn new(ended: EndSessionReceipt, source: io::Error) -> Self {
-        Self { ended, source }
-    }
-
-    pub fn ended(&self) -> &EndSessionReceipt {
-        &self.ended
+        Self {
+            _ended: ended,
+            source,
+        }
     }
 }
 

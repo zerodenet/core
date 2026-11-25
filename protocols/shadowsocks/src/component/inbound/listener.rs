@@ -12,7 +12,7 @@ use zero_platform_tokio::{
         component::*,
         context::{HandshakeContext, InboundConnectionFacts},
         inbound::*,
-        lifecycle::{erase_lifecycle, BuildError},
+        lifecycle::BuildError,
         ChannelError, Impact, Reason, Stage,
     },
     TcpRelayStream, TokioSocket,
@@ -181,15 +181,17 @@ impl ComponentFactory for Factory {
                 }))
             },
         );
+        let lifecycle =
+            zero_transport::runner::LifecycleChain::new().push_typed(LegacySecurityOwner(security));
+        #[cfg(feature = "blake3")]
+        let lifecycle = lifecycle.push_typed_opt(replay);
+        let lifecycle = lifecycle
+            .push_typed(tcp_owner)
+            .push_typed(udp_owner)
+            .push_typed_opt(plugin)
+            .into_boxed();
         Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(PairOwner {
-                tcp: tcp_owner,
-                udp: udp_owner,
-                plugin,
-                #[cfg(feature = "blake3")]
-                replay,
-                security,
-            }),
+            lifecycle,
             roles: ComponentRoles {
                 inbound: Some(erase_inbound(PairSource { tcp, udp })),
                 ..Default::default()
@@ -247,59 +249,19 @@ where
         tokio::select! { result = self.tcp.next(context.clone()) => result, result = self.udp.next(context) => result }
     }
 }
-struct PairOwner {
-    security: crate::shared::legacy_replay::LegacyReplay,
-    #[cfg(feature = "blake3")]
-    replay: Option<crate::component::replay::Owner>,
-    plugin: Option<plugin::Owner>,
-    tcp: zero_platform_tokio::contract::inbound::tcp::TcpSourceLifecycle,
-    udp: zero_platform_tokio::contract::inbound::udp::UdpSourceLifecycle,
-}
-impl zero_platform_tokio::contract::lifecycle::ResourceLifecycle for PairOwner {
-    async fn start(&mut self, deadline: tokio::time::Instant) -> Result<(), BuildError> {
-        self.security
-            .activate_security_budgets()
-            .map_err(|source| {
-                ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component)
-                    .with_source(source)
-            })?;
-        #[cfg(feature = "blake3")]
-        if let Some(replay) = &mut self.replay {
-            replay.start(deadline).await?;
-        }
-        self.tcp.start(deadline).await?;
-        self.udp.start(deadline).await?;
-        if let Some(plugin) = &mut self.plugin {
-            plugin.start(deadline).await?;
-        }
-        Ok(())
+struct LegacySecurityOwner(crate::shared::legacy_replay::LegacyReplay);
+impl zero_platform_tokio::contract::lifecycle::ResourceLifecycle for LegacySecurityOwner {
+    async fn start(&mut self, _: tokio::time::Instant) -> Result<(), BuildError> {
+        self.0.activate_security_budgets().map_err(|source| {
+            ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component)
+                .with_source(source)
+        })
     }
-    fn revoke(&self, reason: zero_platform_tokio::contract::CloseReason) {
-        if let Some(plugin) = &self.plugin {
-            plugin.revoke(reason);
-        }
-        self.tcp.revoke(reason);
-        self.udp.revoke(reason);
-        #[cfg(feature = "blake3")]
-        if let Some(replay) = &self.replay {
-            replay.revoke(reason);
-        }
-    }
+    fn revoke(&self, _: zero_platform_tokio::contract::CloseReason) {}
     async fn shutdown(
         &mut self,
-        deadline: tokio::time::Instant,
+        _: tokio::time::Instant,
     ) -> Result<zero_platform_tokio::contract::lifecycle::CloseReport, BuildError> {
-        let mut report = if let Some(plugin) = &mut self.plugin {
-            plugin.shutdown(deadline).await?
-        } else {
-            Default::default()
-        };
-        report.append(self.udp.shutdown(deadline).await?);
-        report.append(self.tcp.shutdown(deadline).await?);
-        #[cfg(feature = "blake3")]
-        if let Some(replay) = &mut self.replay {
-            report.append(replay.shutdown(deadline).await?);
-        }
-        Ok(report)
+        Ok(Default::default())
     }
 }

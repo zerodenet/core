@@ -12,7 +12,6 @@ pub mod mux;
 pub(crate) mod navigation;
 mod options;
 mod ordinary_datagram;
-mod owner;
 pub mod preconnect;
 pub mod quic;
 mod request;
@@ -27,7 +26,6 @@ use zero_platform_tokio::contract::{
     },
     context::{with_deadline, OpenContext},
     lifecycle::{erase_lifecycle, BuildError},
-    network::CarrierContext,
     scope::TaskRegistrar,
     stream::{erase_stream, BoxStream, ConnectRequest, Connected, StreamOutbound},
     ChannelError, DeliveryState, Reason, Stage,
@@ -154,7 +152,7 @@ impl Factory {
             ));
         }
         Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(owner::Owner {
+            lifecycle: erase_lifecycle(zero_transport::tls::material::ClientMaterialSessionOwner {
                 session,
                 material: options.material.clone(),
                 instance: context.instance(),

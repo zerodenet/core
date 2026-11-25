@@ -35,6 +35,7 @@ mod prepared;
 pub use inbound_stream::InboundTlsStream;
 pub use peek::peek_client_hello;
 pub use prepared::PreparedClient;
+pub mod material;
 mod owned_material;
 pub use crate::client_recipe::OwnedClientRecipe;
 pub use owned_material::OwnedPreparedClient;

@@ -1483,11 +1483,15 @@ fn vmess_inbound_projection_happens_at_adapter_boundary() {
     let source = read(&workspace_root().join("protocols/vmess/src/component/inbound/listener.rs"));
     for required in [
         "impl ComponentFactory for Factory",
-        "tcp::source",
-        "erase_inbound",
-        "prepared.activate()",
+        "StandardTcpInboundFactory",
+        "StandardTcpInboundProtocol",
+        "staged.activate()",
     ] {
         assert!(source.contains(required));
+    }
+    let runner = read(&workspace_root().join("crates/transport/src/runner/inbound.rs"));
+    for required in ["tcp::source", "erase_inbound"] {
+        assert!(runner.contains(required));
     }
     for forbidden in [
         "InboundProtocolConfig",
@@ -1979,7 +1983,7 @@ fn socks5_standard_source_accepts_protocol_requests_before_runtime_handoff() {
     assert!(!adapter.contains("impl InboundListenerCapability"));
     let listener = read(&workspace_root().join("protocols/socks5/src/component/listener.rs"));
     assert!(listener.contains("impl ComponentFactory"));
-    assert!(listener.contains("tcp::source("));
+    assert!(listener.contains("tcp::source(") || listener.contains("StandardTcpInboundFactory"));
     assert!(!protocol.contains("Session::new"));
     assert!(!protocol.contains("tokio::spawn"));
     assert!(!protocol.contains("serve_inbound"));
@@ -2246,11 +2250,15 @@ fn trojan_inbound_projection_happens_at_adapter_boundary() {
     let source = read(&workspace_root().join("protocols/trojan/src/component/inbound/listener.rs"));
     for required in [
         "impl ComponentFactory for Factory",
-        "tcp::source",
-        "erase_inbound",
+        "StandardTcpInboundFactory",
+        "StandardTcpInboundProtocol",
         "update.commit()",
     ] {
         assert!(source.contains(required));
+    }
+    let runner = read(&workspace_root().join("crates/transport/src/runner/inbound.rs"));
+    for required in ["tcp::source", "erase_inbound"] {
+        assert!(runner.contains(required));
     }
     for forbidden in [
         "InboundProtocolConfig",

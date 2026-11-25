@@ -1,6 +1,7 @@
 //! Transform a real preceding standard loan without replacing its custody.
 use super::*;
 use zero_platform_tokio::controlled_carrier::loan::StreamLoan;
+
 impl Outbound {
     pub(super) async fn borrow_prefix(
         &self,
@@ -8,19 +9,8 @@ impl Outbound {
         context: OpenContext,
         session: Option<zero_core::component::SessionId>,
     ) -> Result<Connected<StreamLoan>, ChannelError> {
-        let call = CarrierContext {
-            session,
-            deadline: context.deadline,
-            cancel: context.cancel.clone(),
-        };
-        let opened = context
-            .upstream
-            .borrow_stream(self.options.endpoint.clone(), call);
-        let StreamLoan { io, owner } = tokio::select! { biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session, Stage::Dial, Reason::Revoked, DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session, Stage::Dial, Reason::Cancelled, DeliveryState::Unknown)),
-            result = with_deadline(context.deadline, opened) => result.map_err(|source| self.admission.error(session, Stage::Dial, Reason::Timeout, DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|error| self.admission.attach(error, session))?;
+        let call = GuardedCall::from_admitted(&self.admission, &context, session);
+        let StreamLoan { io, owner } = call.borrow_stream(self.options.endpoint.clone()).await?;
         let mut peer_confirmation = PeerConfirmation::Deferred;
         let confirmation = &mut peer_confirmation;
         let io = io

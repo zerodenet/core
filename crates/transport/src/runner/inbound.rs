@@ -124,12 +124,95 @@ impl<P: StandardTcpInboundProtocol> StandardTcpInboundOptions<P> {
         self.work_resources
     }
 
+    pub fn map_staged<R>(&self, f: impl FnOnce(&P::Staged) -> R) -> Option<R> {
+        let guard = self
+            .staged
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.as_ref().map(f)
+    }
+
+    pub fn take_into_owned(&self) -> Result<Self, ChannelError> {
+        let staged = self
+            .staged
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?;
+        Ok(Self {
+            source_limits: self.source_limits,
+            #[cfg(feature = "tls")]
+            tls_material: self.tls_material.clone(),
+            listen: self.listen.clone(),
+            staged: Mutex::new(Some(staged)),
+            identity: self.identity.clone(),
+            work_tasks: self.work_tasks,
+            work_resources: self.work_resources,
+        })
+    }
+
+    pub fn with_accepted_limits(
+        mut self,
+        accepted: AcceptedTcpLimits,
+        max_bind_attempts: NonZeroUsize,
+        max_pending_sends: NonZeroUsize,
+    ) -> Self {
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-accepted-limits-v1");
+        for value in [
+            accepted.max_sockets.get(),
+            accepted.max_tasks_per_socket.get(),
+            accepted.max_resources_per_socket,
+            max_bind_attempts.get(),
+            max_pending_sends.get(),
+        ] {
+            identity.extend_from_slice(&value.to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.source_limits.accepted_sockets = accepted.max_sockets;
+        self.source_limits.bind_attempts = max_bind_attempts;
+        self.source_limits.pending_sends = max_pending_sends;
+        self.work_tasks = accepted.max_tasks_per_socket;
+        self.work_resources = accepted.max_resources_per_socket;
+        self
+    }
+
+    pub fn with_work_limits_bounded(
+        mut self,
+        tasks: NonZeroUsize,
+        resources: usize,
+        min_tasks: usize,
+        min_resources: usize,
+    ) -> Result<Self, ChannelError> {
+        if !(min_tasks..=4096).contains(&tasks.get())
+            || !(min_resources..=65536).contains(&resources)
+        {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                Impact::Component,
+            ));
+        }
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-inbound-work-limits-v1");
+        identity.extend_from_slice(&tasks.get().to_le_bytes());
+        identity.extend_from_slice(&resources.to_le_bytes());
+        self.identity = identity.into();
+        self.work_tasks = tasks;
+        self.work_resources = resources;
+        Ok(self)
+    }
+
     pub fn with_inbound_source_limits(
         mut self,
         limits: InboundSourceLimits,
     ) -> Result<Self, ChannelError> {
         let limits = limits.validate()?;
-        let used = [limits.accepted_sockets, limits.bind_attempts];
+        let used = [
+            limits.accepted_sockets,
+            limits.bind_attempts,
+            limits.pending_sends,
+        ];
         let mut identity = self.identity.to_vec();
         identity.extend_from_slice(b"actual-source-limits-v1");
         for value in used {

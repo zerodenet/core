@@ -21,7 +21,6 @@ use zero_platform_tokio::contract::{
     },
     context::{with_deadline, ConnectFact, OpenContext},
     lifecycle::{erase_lifecycle, BuildError},
-    network::CarrierContext,
     stream::{
         erase_stream, BoxStream, ConnectRequest, Connected, PeerConfirmation, StreamOutbound,
     },
@@ -32,6 +31,7 @@ use zero_transport::{
         connect_layered_transport_stack, connect_relay_transport_stack, StreamTransportStack,
     },
     profile::{OwnedH2Profile, OwnedHttpUpgradeProfile},
+    runner::{GuardedCall, LifecycleChain},
 };
 
 pub struct Factory;
@@ -105,11 +105,14 @@ impl Factory {
                 zero_transport::browser_dialer::component::Owner::build(options.clone(), &context)
             })
             .transpose()?;
-        let browser = prepared_browser.as_ref().map(|(_, handle)| handle.clone());
+        let (browser_owner, browser) = match prepared_browser {
+            Some((owner, handle)) => (Some(owner), Some(handle)),
+            None => (None, None),
+        };
         let instance = context.instance();
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
         let prepared_tls = Arc::new(Mutex::new(None));
-        let lifecycle = if options.ca_file.is_some() || options.material.is_some() {
+        let inner_lifecycle = if options.ca_file.is_some() || options.material.is_some() {
             erase_lifecycle(owner::CaOwner::new(
                 owner,
                 admission.clone(),
@@ -122,12 +125,10 @@ impl Factory {
         } else {
             erase_lifecycle(owner)
         };
-        let lifecycle = match prepared_browser {
-            Some((browser, _)) => {
-                zero_transport::browser_dialer::component::Combined::wrap(browser, lifecycle)
-            }
-            None => lifecycle,
-        };
+        let lifecycle = LifecycleChain::new()
+            .push_typed_opt(browser_owner)
+            .push(inner_lifecycle)
+            .into_boxed();
         let outbound = Outbound {
             browser,
             options,
@@ -180,25 +181,16 @@ impl StreamOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             )
         })?;
-        let session = self.admission.check(&context)?;
-        if context.upstream.binding().dial != self.options.dial {
-            return Err(self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::NotSubmitted,
-            ));
-        }
+        let call = GuardedCall::enter(&self.admission, &context, Some(&self.options.dial))?;
         crate::shared::validate_request_target(&request.destination.address).map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
+            call.error(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            )
+            .with_source(source)
         })?;
+        let session = call.session();
         if !context.upstream.binding().prefix.is_empty() {
             return self.borrow_prefix(request, context, session).await;
         }
@@ -229,43 +221,21 @@ impl Outbound {
         destination: &zero_core::request::Destination,
         context: &OpenContext,
     ) -> Result<zero_transport::TcpRelayStream, ChannelError> {
-        let session = self.admission.check(context)?;
-        if context.upstream.binding().dial != self.options.dial {
-            return Err(self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::NotSubmitted,
-            ));
-        }
+        let call = GuardedCall::enter(&self.admission, context, Some(&self.options.dial))?;
         crate::shared::validate_request_target(&destination.address).map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
+            call.error(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            )
+            .with_source(source)
         })?;
         if context.upstream.binding().prefix.is_empty() {
             if let Some(browser) = &self.browser {
                 return browser.open(context).await;
             }
         }
-        let carrier = CarrierContext {
-            session,
-            deadline: context.deadline,
-            cancel: context.cancel.clone(),
-        };
-        let opened = context
-            .upstream
-            .open_stream(self.options.endpoint.clone(), carrier);
-        let io = tokio::select! { biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session,Stage::Dial,Reason::Revoked,DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Dial,Reason::Cancelled,DeliveryState::Unknown)),
-            result = with_deadline(context.deadline,opened) => result.map_err(|source| self.admission.error(session,Stage::Dial,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|error| self.admission.attach(error,session))?;
-        self.wrap_transport(io, context, session).await
+        let io = call.open_stream(self.options.endpoint.clone()).await?;
+        self.wrap_transport(io, context, call.session()).await
     }
 }

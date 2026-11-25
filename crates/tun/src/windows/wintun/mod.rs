@@ -6,7 +6,7 @@ mod session;
 
 pub use adapter::{Adapter, AdapterIdentity, AdapterOpenError, CloseAdapterReceipt};
 pub use session::{
-    EndSessionReceipt, Packet, Session, SessionCloseError, SessionIdentity, SessionNotAcquired,
+    EndSessionReceipt, Session, SessionCloseError, SessionIdentity, SessionNotAcquired,
     SessionStartError,
 };
 

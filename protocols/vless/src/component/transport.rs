@@ -1,29 +1,19 @@
 //! The original transport plan over the exact already-owned carrier.
 use super::*;
+use zero_transport::runner::GuardedCall;
+
 impl Outbound {
     pub(in crate::component) async fn open_transport(
         &self,
         context: &OpenContext,
         session: Option<zero_core::component::SessionId>,
     ) -> Result<zero_platform_tokio::TcpRelayStream, ChannelError> {
-        let carrier = CarrierContext {
-            session,
-            deadline: context.deadline,
-            cancel: context.cancel.clone(),
-        };
-        let opened = context
-            .upstream
-            .open_stream(self.options.endpoint.clone(), carrier.clone());
-        let io = tokio::select! { biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session,Stage::Dial,Reason::Revoked,DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Dial,Reason::Cancelled,DeliveryState::Unknown)),
-            result = with_deadline(context.deadline,opened) => result.map_err(|source| self.admission.error(session,Stage::Dial,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|error| self.admission.attach(error,session))?;
+        let call = GuardedCall::from_admitted(&self.admission, context, session);
+        let carrier = call.carrier_context();
+        let io = call.open_stream(self.options.endpoint.clone()).await?;
         let transport = async {
             let io = zero_transport::TcpRelayStream::new(carrier::Carrier::new(io));
             let io = if self.datagram_budget.is_some() {
-                // The same established hosted mode already supplied these exact
-                // material books. Never reenter the standalone mask executor.
                 zero_transport::finalmask::tcp::wrap_hosted(io, self.masks.tcp(), false).await?
             } else {
                 zero_transport::finalmask::tcp::wrap_prepared(io, self.masks.tcp(), false).await?
@@ -88,20 +78,15 @@ impl Outbound {
                 None => Ok(io),
             }
         };
-        let io = tokio::select! { biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result = with_deadline(context.deadline,transport) => result.map_err(|source| self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source| {
-            let mut error = self.admission.error(session, Stage::Handshake, Reason::Io, DeliveryState::Unknown);
-            // No VLESS request was written. Only an empty prefix proves that
-            // another proxy has not already submitted its own CONNECT.
-            if context.upstream.binding().prefix.is_empty() {
-                error.delivery = DeliveryState::NotSubmitted;
-                error.retry = zero_platform_tokio::contract::RetryClass::BeforeSubmission;
-            }
-            error.with_source(source)
-        })?;
-        Ok(io)
+        call.run(Stage::Handshake, DeliveryState::Unknown, transport)
+            .await?
+            .map_err(|source| {
+                let mut error = call.error(Stage::Handshake, Reason::Io, DeliveryState::Unknown);
+                if context.upstream.binding().prefix.is_empty() {
+                    error.delivery = DeliveryState::NotSubmitted;
+                    error.retry = zero_platform_tokio::contract::RetryClass::BeforeSubmission;
+                }
+                error.with_source(source)
+            })
     }
 }
