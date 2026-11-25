@@ -117,7 +117,11 @@ async fn hysteria2_network_replacement_waits_for_the_actual_historical_stream_gu
         assert_eq!(server.authenticated.load(Ordering::SeqCst),1);
         drop(first);
         let replacement=next.await;assert_eq!(server.authenticated.load(Ordering::SeqCst),2);
-        drop(replacement);proxy.protocols.shutdown_components(end()).await.unwrap();server.close().await;
+        drop(replacement);
+        proxy.protocols.shutdown_components(end()).await.unwrap();
+        // Final retirement must still deliver a close to the actual second peer.
+        server.wait_closed(2).await;
+        server.close().await;
     }).await.unwrap();
 }
 

@@ -257,7 +257,11 @@ impl Future for ConnectionDriver {
         let mut keep_going = conn.drive_transmit(cx)?;
         // If a timer expires, there might be more to transmit. When we transmit something, we
         // might need to reset a timer. Hence, we must loop until neither happens.
-        keep_going |= conn.drive_timer(cx);
+        if conn.retiring_socket && !keep_going && conn.buffered_transmit.is_none() {
+            conn.inner.retire_closed();
+        } else {
+            keep_going |= conn.drive_timer(cx);
+        }
         conn.forward_endpoint_events();
         conn.forward_app_events(&self.0.shared);
 
@@ -922,6 +926,7 @@ impl ConnectionRef {
                 runtime,
                 send_buffer: Vec::new(),
                 buffered_transmit: None,
+                retiring_socket: false,
             }),
             shared: Shared::default(),
         }))
@@ -1004,6 +1009,7 @@ pub(crate) struct State {
     send_buffer: Vec<u8>,
     /// We buffer a transmit when the underlying I/O would block
     buffered_transmit: Option<proto::Transmit>,
+    retiring_socket: bool,
 }
 
 impl State {
@@ -1098,8 +1104,15 @@ impl State {
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
                     self.inner.handle_event(event);
                 }
-                Poll::Ready(Some(ConnectionEvent::Close { reason, error_code })) => {
-                    self.close(error_code, reason, shared);
+                Poll::Ready(Some(ConnectionEvent::Close {
+                    reason,
+                    error_code,
+                    retire_socket,
+                })) => {
+                    if !retire_socket || !self.inner.is_closed() {
+                        self.close(error_code, reason, shared);
+                    }
+                    self.retiring_socket |= retire_socket;
                 }
                 Poll::Ready(None) => {
                     return Err(ConnectionError::TransportError(proto::TransportError {

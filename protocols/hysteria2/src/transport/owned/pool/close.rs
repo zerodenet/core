@@ -196,7 +196,7 @@ impl EntryState {
         // The actual H3 owner requests cancellation before local raw close;
         // peer failures already recorded in its real ledger stay failures.
         if let Some(owner) = &self.owner {
-            owner.begin_shutdown();
+            owner.revoke_users();
         }
         if let Some(auth) = &self.auth {
             auth.stop();
@@ -222,6 +222,14 @@ impl EntryState {
         }
         drop(self.auth.take());
         drop(self.pending.take());
+        if let Some(owner) = &self.owner {
+            *entry.protocol_wait.lock().unwrap() = Some((
+                "return of endpoint users before socket retirement",
+                None,
+                None,
+            ));
+            owner.retire_packet_client_original().await?;
+        }
         let tasks = self
             .owner
             .as_ref()

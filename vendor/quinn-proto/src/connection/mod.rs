@@ -1260,6 +1260,16 @@ impl Connection {
         )
     }
 
+    /// Discard closing or draining state after the final transmit was handled,
+    /// when the whole endpoint can no longer respond to incoming datagrams.
+    pub fn retire_closed(&mut self) {
+        if self.state.is_closed() && !self.state.is_drained() {
+            self.close_common();
+            self.state = State::Drained;
+            self.endpoint_events.push_back(EndpointEventInner::Drained);
+        }
+    }
+
     fn close_inner(&mut self, now: Instant, reason: Close) {
         let was_closed = self.state.is_closed();
         if !was_closed {

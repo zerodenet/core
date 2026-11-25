@@ -15,6 +15,26 @@ impl OwnedEndpointOwner {
     }
 }
 
+#[cfg(feature = "hysteria")]
+impl OwnedEndpointOwner {
+    /// This client's unique packet segment is retiring for good. Keep the
+    /// original wire running to drain its finite send queue after the real
+    /// Quinn drivers join. RFC 9000 §10.2 permits early retirement when late
+    /// packets cannot cause responses on the retiring endpoint.
+    pub async fn retire_packet_client_original(&self) -> Result<(), ChannelError> {
+        if !matches!(&self.native, Native::Packet(_)) || self.users_graph.is_none() {
+            return Err(error(Stage::Close, Reason::StalePlan));
+        }
+        self.revoke_users();
+        self.shared.users.wait_empty_original().await?;
+        let endpoint = self.shared.endpoint.lock().unwrap().take();
+        if let Some(endpoint) = endpoint {
+            endpoint.retire_socket(0u32.into(), b"owner retirement");
+        }
+        Ok(())
+    }
+}
+
 #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
 impl OwnedEndpointOwner {
     /// The native packet view has reached this exact live Quinn endpoint

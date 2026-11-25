@@ -289,14 +289,31 @@ impl Endpoint {
     ///
     /// [`Connection::close()`]: crate::Connection::close
     pub fn close(&self, error_code: VarInt, reason: &[u8]) {
+        self.close_connections(error_code, reason, false);
+    }
+
+    /// Permanently retire this endpoint and its datagram socket.
+    ///
+    /// The caller must have stopped all endpoint users and must retire the
+    /// underlying socket after its drivers finish. Stop reading packets so
+    /// late traffic cannot cause stateless responses, and let each connection
+    /// submit its final close packet without waiting out the drain timer.
+    /// Shared listening sockets must use [`Self::close`] instead.
+    pub fn retire_socket(self, error_code: VarInt, reason: &[u8]) {
+        self.close_connections(error_code, reason, true);
+    }
+
+    fn close_connections(&self, error_code: VarInt, reason: &[u8], retire_socket: bool) {
         let reason = Bytes::copy_from_slice(reason);
         let mut endpoint = self.inner.state.lock().unwrap();
+        endpoint.retiring_socket |= retire_socket;
         endpoint.recv_state.connections.close = Some((error_code, reason.clone()));
         for sender in endpoint.recv_state.connections.senders.values() {
             // Ignoring errors from dropped connections
             let _ = sender.send(ConnectionEvent::Close {
                 error_code,
                 reason: reason.clone(),
+                retire_socket: endpoint.retiring_socket,
             });
         }
         self.inner.shared.incoming.notify_waiters();
@@ -365,8 +382,7 @@ impl Future for EndpointDriver {
         }
 
         let now = endpoint.runtime.now();
-        let mut keep_going = false;
-        keep_going |= endpoint.drive_recv(cx, now)?;
+        let mut keep_going = !endpoint.retiring_socket && endpoint.drive_recv(cx, now)?;
         keep_going |= endpoint.handle_events(cx, &self.0.shared);
 
         if !endpoint.recv_state.incoming.is_empty() {
@@ -473,6 +489,7 @@ pub(crate) struct State {
     /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
     ref_count: usize,
     driver_lost: bool,
+    retiring_socket: bool,
     runtime: Arc<dyn Runtime>,
     stats: EndpointStats,
 }
@@ -606,6 +623,7 @@ impl ConnectionSet {
             send.send(ConnectionEvent::Close {
                 error_code,
                 reason: reason.clone(),
+                retire_socket: false,
             })
             .unwrap();
         }
@@ -690,6 +708,7 @@ impl EndpointRef {
                 driver: None,
                 ref_count: 0,
                 driver_lost: false,
+                retiring_socket: false,
                 recv_state,
                 runtime,
                 stats: EndpointStats::default(),

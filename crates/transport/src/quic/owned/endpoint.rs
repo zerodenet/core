@@ -237,10 +237,14 @@ impl OwnedEndpointOwner {
     pub fn reclaim_received_drivers(&self) {
         self.drivers.reclaim_received();
     }
-    pub fn begin_shutdown(&self) {
+    /// Fence new users and stop the actual existing users before retirement.
+    pub fn revoke_users(&self) {
         self.shared.phase.store(3, Ordering::Release);
         self.shared.users.cancellation().cancel();
         self.drivers.revoke_registration();
+    }
+    pub fn begin_shutdown(&self) {
+        self.revoke_users();
         let endpoint = self.shared.endpoint.lock().unwrap().take();
         if let Some(endpoint) = endpoint {
             endpoint.close(0u32.into(), b"owner shutdown");

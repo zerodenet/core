@@ -101,6 +101,7 @@ enum ConnectionEvent {
     Close {
         error_code: VarInt,
         reason: bytes::Bytes,
+        retire_socket: bool,
     },
     Proto(proto::ConnectionEvent),
     Rebind(Arc<dyn AsyncUdpSocket>),
