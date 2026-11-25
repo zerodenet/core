@@ -42,7 +42,7 @@ async fn standard_website_hostname_file_and_original_cleanup() {
     let running=test_listener::start_with_handoff(&proxy,proxy.engine().config().inbounds[0].clone(),move||drop(reserved)).await;
     assert_eq!(running.auxiliary.len(),2);let response=request(running.auxiliary[0],"/").await;assert!(response.ends_with("owned file"),"{response}");
     // H3 appearance uses the same original FileTree provider before authentication.
-    let (client,conn)=connect(running.address,b"h3").await;let (mut driver,mut sender)=h3::client::new(h3_quinn::Connection::new(conn.clone())).await.unwrap();let task=tokio::spawn(async move{std::future::poll_fn(|cx|driver.poll_close(cx)).await});
+    let (client,conn)=connect(running.address,b"h3").await;let (mut driver,mut sender)=h3::client::new(zero_transport::h3_quinn::Connection::new(conn.clone())).await.unwrap();let task=tokio::spawn(async move{std::future::poll_fn(|cx|driver.poll_close(cx)).await});
     let mut stream=sender.send_request(http_uri::Request::builder().uri("https://localhost/").body(()).unwrap()).await.unwrap();stream.finish().await.unwrap();assert_eq!(stream.recv_response().await.unwrap().status(),200);let data=stream.recv_data().await.unwrap().unwrap();use bytes::Buf;let mut data=data;assert_eq!(data.copy_to_bytes(data.remaining()).as_ref(),b"owned file");drop(stream);
     drop(sender);conn.close(0u32.into(),b"");client.close(0u32.into(),b"");task.abort();let _=task.await;client.wait_idle().await;
     assert_eq!(proxy.engine().stats_snapshot().total_started,0,"appearance requests are not proxy flows");

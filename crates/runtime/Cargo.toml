@@ -37,7 +37,7 @@ tracing.workspace = true
 [dev-dependencies]
 zero-platform-tokio = { path = "../platform/tokio", features = ["test-support"] }
 zero-proxy = { path = "../proxy", default-features = false }
-zero-transport = { path = "../transport" }
+zero-transport = { path = "../transport", features = ["quic_h3"] }
 zero-dns = { path = "../dns", features = ["test-support", "udp", "doh"] }
 socks5 = { path = "../../protocols/socks5", features = ["runtime"] }
 http = { path = "../../protocols/http", features = ["runtime"] }
@@ -57,6 +57,5 @@ h2 = "0.4"
 http_uri = { package = "http", version = "1" }
 tokio = { workspace = true, features = ["test-util"] }
 h3 = "=0.0.8"
-h3-quinn = "=0.0.10"
 quinn = { workspace = true, features = ["rustls-ring", "runtime-tokio"] }
 serde_json.workspace = true

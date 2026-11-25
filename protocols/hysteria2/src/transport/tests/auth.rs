@@ -56,7 +56,7 @@ async fn udp_disabled_response_preserves_tcp_session_and_rejects_udp() {
         let (client, server) = (client.unwrap(), server.unwrap());
         let serve = tokio::spawn(async move {
             let mut http = h3::server::builder()
-                .build::<_, Bytes>(h3_quinn::Connection::new(server.clone()))
+                .build::<_, Bytes>(zero_transport::h3_quinn::Connection::new(server.clone()))
                 .await
                 .unwrap();
             let (request, mut stream) = http
@@ -110,7 +110,7 @@ async fn cancellation_during_authentication_closes_quic_session() {
         let (client, server) = (client.unwrap(), server.unwrap());
         let auth = tokio::spawn(authenticate_http3(client, "test-password"));
         let mut http = h3::server::builder()
-            .build::<_, Bytes>(h3_quinn::Connection::new(server.clone()))
+            .build::<_, Bytes>(zero_transport::h3_quinn::Connection::new(server.clone()))
             .await
             .unwrap();
         let (_request, _stream) = http

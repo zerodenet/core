@@ -109,7 +109,7 @@ async fn http3_peer_stop_retires_the_idle_download_on_a_live_connection() {
         };
         let source = accept_xhttp_h3_connection(server, &profile, &SplitHttpRegistry::new());
         let (mut connection, mut sender) =
-            h3::client::new(h3_quinn::Connection::new(client.clone()))
+            h3::client::new(zero_transport::h3_quinn::Connection::new(client.clone()))
                 .await
                 .unwrap();
         let driver = tokio::spawn(async move { connection.wait_idle().await });

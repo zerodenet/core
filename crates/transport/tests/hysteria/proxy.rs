@@ -41,7 +41,7 @@ async fn proxy_masquerade_streams_both_directions_before_upload_finishes() {
         });
         let connection = dial(listen, &Profile::new("irrelevant").unwrap()).await;
         let (mut driver, mut requests) =
-            h3::client::new(h3_quinn::Connection::new(connection.clone()))
+            h3::client::new(crate::h3_quinn::Connection::new(connection.clone()))
                 .await
                 .unwrap();
         let driver = tokio::spawn(async move {

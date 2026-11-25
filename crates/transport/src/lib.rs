@@ -96,6 +96,9 @@ pub mod mkcp;
 #[cfg(feature = "hysteria")]
 pub mod hysteria;
 
+#[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
+pub mod h3_quinn;
+
 pub mod finalmask;
 
 mod gorand;

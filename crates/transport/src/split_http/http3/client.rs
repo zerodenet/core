@@ -11,7 +11,7 @@ use std::{future::poll_fn, io};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_traits::SplitHttpTransportProfile;
 
-type RequestSender = h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>;
+type RequestSender = h3::client::SendRequest<crate::h3_quinn::OpenStreams, Bytes>;
 #[derive(Clone)]
 pub(in crate::split_http) struct Sender(RequestSender);
 struct TaskGuard(tokio::task::AbortHandle);
@@ -87,7 +87,7 @@ impl Sender {
     }
 }
 async fn open(connection: quinn::Connection, stream: &mut XhttpStream) -> io::Result<Sender> {
-    let (mut driver, sender) = h3::client::new(h3_quinn::Connection::new(connection))
+    let (mut driver, sender) = h3::client::new(crate::h3_quinn::Connection::new(connection))
         .await
         .map_err(io::Error::other)?;
     let state = stream.life.clone();
@@ -169,7 +169,7 @@ pub(in crate::split_http) async fn open_shared(
     connection: quinn::Connection,
     closed: impl FnOnce() + Send + 'static,
 ) -> io::Result<(Sender, tokio::task::AbortHandle)> {
-    let (mut driver, sender) = h3::client::new(h3_quinn::Connection::new(connection))
+    let (mut driver, sender) = h3::client::new(crate::h3_quinn::Connection::new(connection))
         .await
         .map_err(io::Error::other)?;
     let task = tokio::spawn(async move {

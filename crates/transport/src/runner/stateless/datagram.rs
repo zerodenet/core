@@ -98,7 +98,6 @@ where
             .map_err(|err| err.into_channel_error(&call))?;
         let io = self.carrier.open_carrier(&call).await?;
         let session = call.session();
-        drop(call);
         self.datagram
             .handshake_datagram(
                 &self.carrier.options,

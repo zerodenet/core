@@ -21,7 +21,6 @@ runtime = [
     "dep:bytes",
     "dep:quinn-proto",
     "dep:h3",
-    "dep:h3-quinn",
     "dep:http",
     "dep:hyper",
     "dep:rustls",
@@ -36,7 +35,6 @@ tokio = ["dep:quinn", "dep:tokio"]
 async-trait = "0.1"
 bytes = { version = "1", optional = true }
 h3 = { version = "0.0.8", optional = true }
-h3-quinn = { version = "=0.0.10", optional = true }
 url = { version = "2", optional = true }
 futures-util = { version = "0.3", optional = true }
 http = { version = "1", optional = true }

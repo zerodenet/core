@@ -222,9 +222,11 @@ async fn web_using(
         .unwrap()
         .await
         .unwrap();
-    let (mut driver, mut requests) = h3::client::new(h3_quinn::Connection::new(connection.clone()))
-        .await
-        .unwrap();
+    let (mut driver, mut requests) = h3::client::new(zero_transport::h3_quinn::Connection::new(
+        connection.clone(),
+    ))
+    .await
+    .unwrap();
     let driver = tokio::spawn(async move {
         std::future::poll_fn(|cx| driver.poll_close(cx)).await;
     });

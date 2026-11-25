@@ -14,7 +14,7 @@ mod dispatch;
 mod exchange;
 mod masquerade;
 pub use masquerade::Masquerade;
-type RequestStream = h3::server::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>;
+type RequestStream = h3::server::RequestStream<zero_transport::h3_quinn::BidiStream<Bytes>, Bytes>;
 
 pub(super) struct Hysteria2Http3ServerGuard {
     connection: quinn::Connection,
@@ -62,7 +62,8 @@ pub(super) async fn accept(
             .unwrap_or(Err(quinn::ConnectionError::LocallyClosed));
         Some((stream, rx))
     });
-    let carrier = h3_quinn::Connection::with_incoming_bidi(connection.clone(), incoming);
+    let carrier =
+        zero_transport::h3_quinn::Connection::with_incoming_bidi(connection.clone(), incoming);
     let profile = profile.clone();
     let state = Arc::new(AuthState {
         authenticated,

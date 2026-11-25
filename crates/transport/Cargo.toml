@@ -15,18 +15,17 @@ http_client = ["dep:tower-service", "dep:hyper", "dep:hyper-util", "dep:hyper-ru
 grpc = []
 h2 = []
 http_upgrade = []
-split_http = ["h2", "ws", "http_server", "dep:h3", "dep:h3-quinn"]
+split_http = ["h2", "ws", "http_server", "dep:h3"]
 mkcp = []
-hysteria = ["quic", "http_server", "dep:h3", "dep:h3-quinn"]
+hysteria = ["quic", "http_server", "dep:h3"]
 quic = ["tls"]
-quic_h3 = ["quic", "dep:h3", "dep:h3-quinn"]
+quic_h3 = ["quic", "dep:h3"]
 tls = ["dep:aws-lc-rs", "dep:rcgen", "http_client"]
 ws = []
 
 [dependencies]
 mime = "0.3"
 h3 = { version = "0.0.8", optional = true }
-h3-quinn = { version = "=0.0.10", optional = true }
 base64 = "0.22"
 blake2 = "0.10"
 data-encoding = "2"

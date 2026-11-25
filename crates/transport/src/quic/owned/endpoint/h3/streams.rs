@@ -7,7 +7,7 @@ use zero_platform_tokio::contract::WaitForCancellationFutureOwned;
 /// The original adapter (including its pending raw read-chunk future) is
 /// destroyed before returning its actual receive-direction logical capacity.
 pub struct RecvStream {
-    stream: h3_quinn::RecvStream,
+    stream: crate::h3_quinn::RecvStream,
     pub(super) prefix: Option<Bytes>,
     cancelled: Pin<Box<WaitForCancellationFutureOwned>>,
     _permit: Permit,
@@ -15,7 +15,7 @@ pub struct RecvStream {
 /// The original raw send stream and buffered frame are destroyed before its
 /// actual send-direction lease is released. FIN alone never refunds capacity.
 pub struct SendStream {
-    stream: h3_quinn::SendStream<Bytes>,
+    stream: crate::h3_quinn::SendStream<Bytes>,
     cancelled: Pin<Box<WaitForCancellationFutureOwned>>,
     _permit: Permit,
 }
@@ -26,7 +26,7 @@ impl RecvStream {
         permit: Permit,
     ) -> Self {
         Self {
-            stream: h3_quinn::RecvStream::new(stream),
+            stream: crate::h3_quinn::RecvStream::new(stream),
             prefix: None,
             cancelled,
             _permit: permit,
@@ -40,7 +40,7 @@ impl SendStream {
         permit: Permit,
     ) -> Self {
         Self {
-            stream: h3_quinn::SendStream::new(stream),
+            stream: crate::h3_quinn::SendStream::new(stream),
             cancelled,
             _permit: permit,
         }

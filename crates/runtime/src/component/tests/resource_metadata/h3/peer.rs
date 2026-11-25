@@ -59,7 +59,9 @@ impl Peer {
         let task = tokio::spawn(async move {
             let connection = endpoint.accept().await.unwrap().await.unwrap();
             let mut server = ::h3::server::builder()
-                .build::<_, Bytes>(h3_quinn::Connection::new(connection.clone()))
+                .build::<_, Bytes>(zero_transport::h3_quinn::Connection::new(
+                    connection.clone(),
+                ))
                 .await
                 .unwrap();
             let (request, mut stream) = server

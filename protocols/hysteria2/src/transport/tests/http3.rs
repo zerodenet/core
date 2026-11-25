@@ -6,7 +6,7 @@ use bytes::{Buf, Bytes};
 use std::future::poll_fn;
 use tokio::time::{timeout, Duration};
 use zero_core::InboundClientResponse;
-type Sender = h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>;
+type Sender = h3::client::SendRequest<zero_transport::h3_quinn::OpenStreams, Bytes>;
 async fn request(
     sender: &mut Sender,
     method: &str,
@@ -64,9 +64,10 @@ async fn website_authentication_and_tcp_share_one_http3_connection() {
             stream.shutdown().await.unwrap();
             connection.datagram_source().closed().await;
         });
-        let (mut driver, mut sender) = h3::client::new(h3_quinn::Connection::new(client.clone()))
-            .await
-            .unwrap();
+        let (mut driver, mut sender) =
+            h3::client::new(zero_transport::h3_quinn::Connection::new(client.clone()))
+                .await
+                .unwrap();
         let driver = tokio::spawn(async move {
             let _ = poll_fn(|cx| driver.poll_close(cx)).await;
         });
@@ -152,7 +153,7 @@ async fn masquerade_reverse_proxy_forwards_method_path_and_body() {
         let (client, server) = pair().await;
         let profile = profile().with_masquerade(Masquerade::proxy(&format!("http://{address}/base"), true).unwrap());
         let server = tokio::spawn(async move { let _ = profile.accept_authenticated_connection(server).await; });
-        let (mut driver, mut sender) = h3::client::new(h3_quinn::Connection::new(client.clone())).await.unwrap();
+        let (mut driver, mut sender) = h3::client::new(zero_transport::h3_quinn::Connection::new(client.clone())).await.unwrap();
         let driver = tokio::spawn(async move { let _ = poll_fn(|cx| driver.poll_close(cx)).await; });
         let (response, body) = request(&mut sender, "POST", "https://website/path?q=1", None, b"payload").await;
         assert_eq!(response.status(), 201); assert_eq!(body, b"origin");
@@ -180,9 +181,10 @@ async fn masquerade_static_site_serves_index_and_denies_traversal() {
         let server = tokio::spawn(async move {
             let _ = profile.accept_authenticated_connection(server).await;
         });
-        let (mut driver, mut sender) = h3::client::new(h3_quinn::Connection::new(client.clone()))
-            .await
-            .unwrap();
+        let (mut driver, mut sender) =
+            h3::client::new(zero_transport::h3_quinn::Connection::new(client.clone()))
+                .await
+                .unwrap();
         let driver = tokio::spawn(async move {
             let _ = poll_fn(|cx| driver.poll_close(cx)).await;
         });

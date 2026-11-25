@@ -7,7 +7,7 @@ use zero_transport::RuntimeError;
 mod request;
 pub use request::authenticate_http3_request;
 
-type H3RequestSender = h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>;
+type H3RequestSender = h3::client::SendRequest<zero_transport::h3_quinn::OpenStreams, Bytes>;
 /// One authenticated standard Hysteria2 HTTP/3 session.
 ///
 /// The request sender and driver must remain alive for as long as raw proxy
@@ -87,7 +87,7 @@ pub async fn authenticate_http3_with_settings(
 ) -> Result<Hysteria2AuthenticatedConnection, RuntimeError> {
     // Preserve validation before the original H3 handshake/driver is created.
     let request = request::authentication_request(password, settings)?;
-    let h3_connection = h3_quinn::Connection::new(connection.clone());
+    let h3_connection = zero_transport::h3_quinn::Connection::new(connection.clone());
     let (mut driver, request_sender) = h3::client::new(h3_connection)
         .await
         .map_err(h3_error("initialize HTTP/3 client"))?;

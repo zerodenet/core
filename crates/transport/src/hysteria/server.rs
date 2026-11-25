@@ -35,7 +35,7 @@ pub fn accept_connection(connection: quinn::Connection, profile: &Profile) -> In
     let input = futures_util::stream::unfold(web_rx, |mut rx| async move {
         rx.recv().await.map(|item| (item, rx))
     });
-    let carrier = h3_quinn::Connection::with_incoming_bidi(connection.clone(), input);
+    let carrier = crate::h3_quinn::Connection::with_incoming_bidi(connection.clone(), input);
     let profile = profile.clone();
     let owner = connection.clone();
     let task = tokio::spawn(async move {

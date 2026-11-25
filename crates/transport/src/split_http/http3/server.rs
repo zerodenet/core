@@ -21,7 +21,7 @@ pub fn accept_xhttp_h3_connection<P: SplitHttpTransportProfile + ?Sized>(
         let mut builder = h3::server::builder();
         builder.max_field_section_size(profile.options.server_max_header_bytes as u64);
         let Ok(mut server) = builder
-            .build(h3_quinn::Connection::new(connection.clone()))
+            .build(crate::h3_quinn::Connection::new(connection.clone()))
             .await
         else {
             return;

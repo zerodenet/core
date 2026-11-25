@@ -906,7 +906,6 @@ fn vendor_directory_and_crates_io_patches_are_frozen_to_shrinking_allowlist() {
     const ALLOWED_VENDOR_DIRS: &[&str] = &[
         "gotatun",
         "h2",
-        "h3-quinn",
         "hyper",
         "openssl-sys-0.9.117-openssl4",
         "quinn",

@@ -7,7 +7,7 @@ use std::sync::{
 };
 pub struct Client {
     connection: QuicConnection,
-    _sender: h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
+    _sender: h3::client::SendRequest<crate::h3_quinn::OpenStreams, Bytes>,
     driver: tokio::task::AbortHandle,
 }
 impl Drop for Client {
@@ -22,7 +22,7 @@ impl Client {
         profile: &Profile,
     ) -> Result<Arc<Self>, RuntimeError> {
         let (mut driver, mut sender) =
-            h3::client::new(h3_quinn::Connection::new(connection.clone()))
+            h3::client::new(crate::h3_quinn::Connection::new(connection.clone()))
                 .await
                 .map_err(io::Error::other)?;
         let task = tokio::spawn(async move {

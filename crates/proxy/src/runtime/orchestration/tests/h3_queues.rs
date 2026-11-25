@@ -10,7 +10,7 @@ use tokio::{
 use zero_config::RuntimeConfig;
 use zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin;
 type Owner = crate::runtime::inbound_owners::InboundOwner;
-type Sender = h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>;
+type Sender = h3::client::SendRequest<zero_transport::h3_quinn::OpenStreams, Bytes>;
 async fn ready(proxy: &Proxy, tag: &str) -> Arc<Owner> {
     timeout(Duration::from_secs(5), async {
         loop {
@@ -65,10 +65,11 @@ async fn web(address: std::net::SocketAddr) {
         .unwrap()
         .await
         .unwrap();
-    let (mut driver, mut requests): (_, Sender) =
-        h3::client::new(h3_quinn::Connection::new(connection.clone()))
-            .await
-            .unwrap();
+    let (mut driver, mut requests): (_, Sender) = h3::client::new(
+        zero_transport::h3_quinn::Connection::new(connection.clone()),
+    )
+    .await
+    .unwrap();
     let driver =
         tokio::spawn(async move { std::future::poll_fn(|cx| driver.poll_close(cx)).await });
     let mut streams = Vec::new();
