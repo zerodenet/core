@@ -32,6 +32,14 @@ pub trait PooledDatagramProtocol<P: PooledRoleProtocol>: Clone + Send + Sync + '
         Ok(())
     }
 
+    fn validate_leaf_request(
+        &self,
+        _leaf: &P::BoundLeaf,
+        _request: &DatagramRequest,
+    ) -> Result<(), HandshakeError> {
+        Ok(())
+    }
+
     fn open_datagram<'a>(
         &'a self,
         leaf: &'a P::BoundLeaf,
@@ -106,6 +114,9 @@ where
         let (options, leaf) = self.shared.selected(&context)?;
         let opened = {
             let call = GuardedCall::from_admitted(&self.shared.admission, &context, session);
+            self.datagram
+                .validate_leaf_request(&leaf, &request)
+                .map_err(|err| err.into_channel_error(&call))?;
             let opened = call
                 .run_io(
                     Stage::Handshake,

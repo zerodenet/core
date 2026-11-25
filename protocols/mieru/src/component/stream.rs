@@ -10,7 +10,7 @@ use zero_platform_tokio::contract::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
         ResourceOwner, RoleKind,
     },
-    lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle},
+    lifecycle::{BuildError, CloseReport, ResourceLifecycle},
     stream::erase_stream,
     ChannelError, CloseReason, DeliveryState, Reason, Stage,
 };
@@ -21,8 +21,7 @@ struct Outbound {
     admission: Arc<SessionAdmission>,
     pool: ComponentInstanceId,
 }
-struct Owner {
-    inner: SessionOwner,
+struct PoolGuard {
     options: Arc<StreamOptions>,
     admission: Arc<SessionAdmission>,
     pool: ComponentInstanceId,
@@ -90,13 +89,16 @@ impl ComponentFactory for StreamFactory {
             ));
         }
         let pool = pool.unwrap();
-        Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(Owner {
-                inner,
+        let lifecycle = zero_transport::runner::LifecycleChain::new()
+            .push_typed(PoolGuard {
                 options: options.clone(),
                 admission: admission.clone(),
                 pool,
-            }),
+            })
+            .push_typed(inner)
+            .into_boxed();
+        Ok(ComponentInstance {
+            lifecycle,
             roles: ComponentRoles {
                 stream: Some(erase_stream(Outbound {
                     options: options.clone(),
@@ -115,8 +117,8 @@ impl ComponentFactory for StreamFactory {
         })
     }
 }
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
+impl ResourceLifecycle for PoolGuard {
+    async fn start(&mut self, _: Instant) -> Result<(), BuildError> {
         let (_, pool) = self.options.actual_pool(self.pool).map_err(|source| {
             self.admission
                 .error(
@@ -147,13 +149,11 @@ impl ResourceLifecycle for Owner {
                 DeliveryState::NotSubmitted,
             ));
         }
-        self.inner.start(deadline).await
+        Ok(())
     }
-    fn revoke(&self, reason: CloseReason) {
-        self.inner.revoke(reason);
-    }
-    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
-        self.inner.shutdown(deadline).await
+    fn revoke(&self, _: CloseReason) {}
+    async fn shutdown(&mut self, _: Instant) -> Result<CloseReport, BuildError> {
+        Ok(CloseReport::default())
     }
 }
 mod connect;

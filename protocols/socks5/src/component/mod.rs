@@ -103,49 +103,29 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<Self::Stream>, ChannelError> {
-        let session = self.admission.check(&context)?;
-        if context.upstream.binding().dial != self.options.dial {
-            return Err(self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::NotSubmitted,
-            ));
-        }
+        let call = zero_transport::runner::GuardedCall::enter(
+            &self.admission,
+            &context,
+            Some(&self.options.dial),
+        )?;
+        let session = call.session();
         let request =
             wire::build_connect_request(&request.destination.address, request.destination.port)
                 .map_err(|source| {
-                    self.admission
-                        .error(
-                            session,
-                            Stage::Prepare,
-                            Reason::InvalidConfig,
-                            DeliveryState::NotSubmitted,
-                        )
-                        .with_source(source)
+                    call.error(
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        DeliveryState::NotSubmitted,
+                    )
+                    .with_source(source)
                 })?;
         if self.carriers.is_some()
             && (session.is_none() || context.upstream.has_tracked_business_caller())
         {
             return self.connect_owned(request, context, session).await;
         }
-        let carrier = CarrierContext {
-            session,
-            deadline: context.deadline,
-            cancel: context.cancel.clone(),
-        };
-        let open = context
-            .upstream
-            .open_stream(self.options.endpoint.clone(), carrier);
-        let io = tokio::select! {
-            biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session, Stage::Dial, Reason::Revoked, DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session, Stage::Dial, Reason::Cancelled, DeliveryState::Unknown)),
-            result = with_deadline(context.deadline, open) => result.map_err(|source| self.admission.error(session, Stage::Dial, Reason::Timeout, DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|error| self.admission.attach(error, session))?;
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::CarrierReady);
-        }
+        let io = call.open_stream(self.options.endpoint.clone()).await?;
+        call.facts().record(ConnectFact::CarrierReady);
         self.handshake(io, request, &context, session).await
     }
     async fn connect_carrier(
@@ -191,12 +171,11 @@ impl Outbound {
                 }
             },
         );
-        let result = tokio::select! {
-            biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session, Stage::Handshake, Reason::Revoked, DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session, Stage::Handshake, Reason::Cancelled, DeliveryState::Unknown)),
-            result = with_deadline(context.deadline, handshake) => result.map_err(|source| self.admission.error(session, Stage::Handshake, Reason::Timeout, DeliveryState::Unknown).with_source(source))?,
-        };
+        let call =
+            zero_transport::runner::GuardedCall::from_admitted(&self.admission, context, session);
+        let result = call
+            .run(Stage::Handshake, DeliveryState::Unknown, handshake)
+            .await?;
         if let Err(source) = result {
             let original = socket.take_source();
             let reason = if original.is_some() || matches!(source, zero_core::Error::Io(_)) {

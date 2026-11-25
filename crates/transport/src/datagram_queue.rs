@@ -500,7 +500,9 @@ impl UdpPoller for Poller {
 }
 
 mod packet_io;
-pub(crate) use packet_io::{receive, receive_budgeted, receive_native, send};
+pub(crate) use packet_io::{receive, send};
+#[cfg(feature = "quic")]
+pub(crate) use packet_io::{receive_budgeted, receive_native};
 pub(crate) mod memory;
 
 #[cfg(test)]

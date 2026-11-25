@@ -81,6 +81,61 @@ impl<P, D> PooledRoleFactory<P, WithPooledDatagram<D>> {
     }
 }
 
+impl<P, D> PooledRoleFactory<P, D>
+where
+    P: PooledRoleProtocol,
+    D: PooledDatagramRoleBuilder<P>,
+{
+    pub fn build_with_admission(
+        &self,
+        options: Arc<P::Options>,
+        context: BuildContext,
+    ) -> Result<(ComponentInstance, Arc<SessionAdmission>), BuildError> {
+        let (inner, admission) = SessionOwner::new(context.component, &context.cancel);
+        let ready = Arc::new(Ready {
+            leaf: Mutex::new(None),
+        });
+        let pool = context
+            .dependency(options.pool_owner())
+            .filter(|pool| pool.component != context.component)
+            .filter(|_| context.dependencies.len() == 1)
+            .ok_or_else(|| {
+                admission.error(
+                    None,
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::NotSubmitted,
+                )
+            })?;
+        let shared = RoleHandle {
+            options: Arc::downgrade(&options),
+            ready: Arc::downgrade(&ready),
+            admission: admission.clone(),
+            pool,
+        };
+        let datagram = self
+            .datagram
+            .build_pooled_datagram(shared.clone(), options.supports_datagram());
+        let stream = Some(erase_stream(PooledStreamRole { shared }));
+        let instance = ComponentInstance {
+            roles: ComponentRoles {
+                stream,
+                datagram,
+                ..Default::default()
+            },
+            lifecycle: erase_lifecycle(RoleOwner {
+                protocol: self.protocol.clone(),
+                options,
+                ready,
+                admission: admission.clone(),
+                inner,
+                pool,
+            }),
+        };
+        Ok((instance, admission))
+    }
+}
+
 impl<P, D> ComponentFactory for PooledRoleFactory<P, D>
 where
     P: PooledRoleProtocol,
@@ -108,46 +163,7 @@ where
         options: Arc<Self::Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        let (inner, admission) = SessionOwner::new(context.component, &context.cancel);
-        let ready = Arc::new(Ready {
-            leaf: Mutex::new(None),
-        });
-        let pool = context
-            .dependency(options.pool_owner())
-            .filter(|pool| pool.component != context.component)
-            .filter(|_| context.dependencies.len() == 1)
-            .ok_or_else(|| {
-                admission.error(
-                    None,
-                    Stage::Prepare,
-                    Reason::StalePlan,
-                    DeliveryState::NotSubmitted,
-                )
-            })?;
-        let shared = RoleHandle {
-            options: Arc::downgrade(&options),
-            ready: Arc::downgrade(&ready),
-            admission: admission.clone(),
-            pool,
-        };
-        let datagram = self
-            .datagram
-            .build_pooled_datagram(shared.clone(), options.supports_datagram());
-        let stream = Some(erase_stream(PooledStreamRole { shared }));
-        Ok(ComponentInstance {
-            roles: ComponentRoles {
-                stream,
-                datagram,
-                ..Default::default()
-            },
-            lifecycle: erase_lifecycle(RoleOwner {
-                protocol: self.protocol.clone(),
-                options,
-                ready,
-                admission,
-                inner,
-                pool,
-            }),
-        })
+        self.build_with_admission(options, context)
+            .map(|(instance, _)| instance)
     }
 }

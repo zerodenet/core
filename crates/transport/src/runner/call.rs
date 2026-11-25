@@ -132,6 +132,22 @@ impl<'a> GuardedCall<'a> {
         }
     }
 
+    /// Run `fut` under biased revocation and caller cancellation when `fut`
+    /// already enforces `context.deadline` internally.
+    pub async fn run_cancellable<T>(
+        &self,
+        stage: Stage,
+        delivery: DeliveryState,
+        fut: impl Future<Output = T>,
+    ) -> Result<T, ChannelError> {
+        tokio::select! {
+            biased;
+            _ = self.admission.cancelled() => Err(self.error(stage, Reason::Revoked, delivery)),
+            _ = self.context.cancel.cancelled() => Err(self.error(stage, Reason::Cancelled, delivery)),
+            result = fut => Ok(result),
+        }
+    }
+
     /// Run a fallible I/O future under the same 3-way guard and normalize inner
     /// errors to `Reason::Io`.
     pub async fn run_io<T, E>(

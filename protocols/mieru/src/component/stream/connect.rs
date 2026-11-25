@@ -2,9 +2,10 @@ use super::*;
 use crate::{client::native_io::Capture, tunnel};
 use std::{error::Error, fmt, io};
 use zero_platform_tokio::contract::{
-    context::{with_deadline, ConnectFact, OpenContext},
+    context::{ConnectFact, OpenContext},
     stream::{BoxStream, ConnectRequest, Connected, PeerConfirmation, StreamOutbound},
 };
+use zero_transport::runner::GuardedCall;
 #[derive(Debug)]
 struct ProtocolFailure(zero_core::Error);
 impl fmt::Display for ProtocolFailure {
@@ -99,6 +100,7 @@ impl Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
+        let call = GuardedCall::from_admitted(&self.admission, &context, session);
         let opening = pool.open_managed_via_observed(
             self.pool,
             key,
@@ -107,35 +109,41 @@ impl Outbound {
             context.deadline,
             context.upstream.observed_pending_carrier(),
         );
-        let stream = tokio::select! {biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=opening=>result.map_err(|source|self.pool_failure(source,session))?,
-        };
+        let stream = call
+            .run_cancellable(Stage::Handshake, DeliveryState::Unknown, opening)
+            .await?
+            .map_err(|source| self.pool_failure(source, session))?;
         if let Some(origin) = stream.original_carrier() {
             context.upstream.observe_carrier_origin(origin);
         }
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::CarrierReady);
-        }
+        call.facts().record(ConnectFact::CarrierReady);
         let (mut stream, observed) = Capture::new(stream);
         let operation = tunnel::request_tcp_connect(
             &mut stream,
             &request.destination.address,
             request.destination.port,
         );
-        let result = tokio::select! {biased;
-            _=self.admission.cancelled()=>Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,operation)=>match result {
-                Err(source)=>Err(self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source)),
-                Ok(result)=>result.map_err(|source|{
-                    let source=observed.recover(io::Error::other(ProtocolFailure(source)));
-                    crate::client::NativeTcpStream::driver_failure(&source,session).unwrap_or_else(||
-                        self.admission.error(session,Stage::Handshake,if observed.has_error() {Reason::Io}else {Reason::Protocol},DeliveryState::Unknown).with_source(source))
-                }),
-            },
-        };
+        let result =
+            call.run(Stage::Handshake, DeliveryState::Unknown, operation)
+                .await
+                .and_then(|result| {
+                    result.map_err(|source| {
+                        let source = observed.recover(io::Error::other(ProtocolFailure(source)));
+                        crate::client::NativeTcpStream::driver_failure(&source, session)
+                            .unwrap_or_else(|| {
+                                call.error(
+                                    Stage::Handshake,
+                                    if observed.has_error() {
+                                        Reason::Io
+                                    } else {
+                                        Reason::Protocol
+                                    },
+                                    DeliveryState::Unknown,
+                                )
+                                .with_source(source)
+                            })
+                    })
+                });
         if let Some(observer) = &context.observer {
             if observed.written() > 0 {
                 observer.record(session, ConnectFact::RequestSubmitted);

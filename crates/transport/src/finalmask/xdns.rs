@@ -35,6 +35,7 @@ pub(super) fn wrap(
         client(inner, channels, domain, id)
     })
 }
+#[cfg(all(feature = "mkcp", feature = "quic"))]
 pub(super) fn prepare_owned(
     inner: Arc<dyn AsyncUdpSocket>,
     domain: &str,

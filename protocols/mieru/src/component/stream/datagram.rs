@@ -2,9 +2,10 @@
 use super::*;
 use std::sync::Arc;
 use zero_platform_tokio::contract::{
-    context::{with_deadline, ConnectFact, OpenContext},
+    context::{ConnectFact, OpenContext},
     datagram::{DatagramLimits, DatagramOutbound, DatagramRequest, DatagramSession},
 };
+use zero_transport::runner::GuardedCall;
 mod control;
 mod rx;
 mod shared;
@@ -64,23 +65,34 @@ impl DatagramOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
-        let stream = tokio::select! {biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=pool.open_managed_via_observed(self.pool,key,&prepared.options,Some(context.upstream.binding().clone()),context.deadline,context.upstream.observed_pending_carrier())=>result.map_err(|source|self.pool_failure(source,session))?,
-        };
+        let call = GuardedCall::from_admitted(&self.admission, &context, session);
+        let stream = call
+            .run_cancellable(
+                Stage::Handshake,
+                DeliveryState::Unknown,
+                pool.open_managed_via_observed(
+                    self.pool,
+                    key,
+                    &prepared.options,
+                    Some(context.upstream.binding().clone()),
+                    context.deadline,
+                    context.upstream.observed_pending_carrier(),
+                ),
+            )
+            .await?
+            .map_err(|source| self.pool_failure(source, session))?;
         if let Some(origin) = stream.original_carrier() {
             context.upstream.observe_carrier_origin(origin);
         }
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::CarrierReady);
-        }
+        call.facts().record(ConnectFact::CarrierReady);
         let (mut stream, observed) = crate::client::native_io::Capture::new(stream);
-        let result = tokio::select! {biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,crate::tunnel::request_udp_associate(&mut stream))=>result.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        };
+        let result = call
+            .run(
+                Stage::Handshake,
+                DeliveryState::Unknown,
+                crate::tunnel::request_udp_associate(&mut stream),
+            )
+            .await?;
         if let Some(observer) = &context.observer {
             if observed.written() > 0 {
                 observer.record(session, ConnectFact::RequestSubmitted);
