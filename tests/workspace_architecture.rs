@@ -913,7 +913,6 @@ fn vendor_directory_and_crates_io_patches_are_frozen_to_shrinking_allowlist() {
         "quinn-proto",
         "quinn-udp",
         "rustls",
-        "tokio-util",
         "wintun",
     ];
 
@@ -977,6 +976,23 @@ fn vendor_directory_and_crates_io_patches_are_frozen_to_shrinking_allowlist() {
                 "{} must not depend on vendor/ via path; first-party crates belong in crates/ or protocols/",
                 entry.display()
             );
+        }
+    }
+
+    for group in ["crates", "protocols", "src"] {
+        for path in rust_sources(&root.join(group)) {
+            let source = read(&path);
+            for forbidden in [
+                "tokio_util::sync::CancellationToken",
+                "tokio_util::sync::WaitForCancellationFuture",
+                "tokio_util::sync::{CancellationToken",
+            ] {
+                assert!(
+                    !source.contains(forbidden),
+                    "{} must use zero_platform_tokio::contract::CancellationToken instead of upstream {forbidden}",
+                    path.display()
+                );
+            }
         }
     }
 }

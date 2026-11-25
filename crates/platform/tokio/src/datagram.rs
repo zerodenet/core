@@ -14,7 +14,7 @@ impl crate::TokioDatagramSocket {
         self,
         association: zero_core::component::AssociationId,
         peer: SocketAddr,
-        cancel: tokio_util::sync::CancellationToken,
+        cancel: crate::contract::CancellationToken,
     ) -> crate::contract::datagram::BoxDatagramSession {
         fixed::session(self, association, peer, cancel)
     }

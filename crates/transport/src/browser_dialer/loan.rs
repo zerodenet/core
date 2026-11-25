@@ -45,7 +45,7 @@ impl PreparedBrowserLoan {
             .map_err(failed)?;
         let cancel = memory
             .reserve(PacketMetadataLayout::boxed::<
-                tokio_util::sync::WaitForCancellationFutureOwned,
+                zero_platform_tokio::contract::WaitForCancellationFutureOwned,
             >())
             .map_err(failed)?;
         Ok(Self {
@@ -177,7 +177,7 @@ impl PreparedBrowserLoan {
     fn finish(
         self,
         stream: BrowserStream,
-        cancel: tokio_util::sync::CancellationToken,
+        cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> Result<StreamLoan, ChannelError> {
         let stream = stream.bind_borrowed(cancel, self.cancel).map_err(failed)?;
         let original = stream.original().cloned().ok_or_else(|| {

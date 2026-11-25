@@ -48,7 +48,7 @@ async fn tree(natural: bool) {
     let copied_address = copied_listener.local_addr().unwrap();
     let (listener_view, mut listener_original) = crate::ControlledTcpListener::new(
         copied_listener,
-        tokio_util::sync::CancellationToken::new(),
+        crate::contract::CancellationToken::new(),
     );
     let script = format!(
         r#"

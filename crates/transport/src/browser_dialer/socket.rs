@@ -15,14 +15,14 @@ use zero_traits::AsyncSocket;
 pub struct BrowserStream {
     inner: crate::ws::WebSocketSocket<super::wire::Socket>,
     _permit: Option<tokio::sync::OwnedSemaphorePermit>,
-    cancelled: tokio_util::sync::CancellationToken,
+    cancelled: zero_platform_tokio::contract::CancellationToken,
     original: Option<super::original::BrowserUse>,
     admission: std::sync::Mutex<Option<super::memory::Wait>>,
     memory: super::memory::Memory,
     borrowed: Option<Borrowed>,
 }
 struct Borrowed {
-    future: Pin<Box<tokio_util::sync::WaitForCancellationFutureOwned>>,
+    future: Pin<Box<zero_platform_tokio::contract::WaitForCancellationFutureOwned>>,
     _header: zero_traits::packet_metadata::PacketMetadataCredit,
 }
 
@@ -47,11 +47,11 @@ impl BrowserStream {
 
     pub(super) fn bind_borrowed(
         mut self,
-        cancel: tokio_util::sync::CancellationToken,
+        cancel: zero_platform_tokio::contract::CancellationToken,
         header: zero_traits::packet_metadata::PacketMetadataCredit,
     ) -> io::Result<Self> {
         let needed = zero_traits::packet_metadata::PacketMetadataLayout::boxed::<
-            tokio_util::sync::WaitForCancellationFutureOwned,
+            zero_platform_tokio::contract::WaitForCancellationFutureOwned,
         >();
         if header.layout().bytes() < needed.bytes()
             || header.layout().allocations() < needed.allocations()

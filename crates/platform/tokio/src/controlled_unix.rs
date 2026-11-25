@@ -1,4 +1,5 @@
 //! One declared Unix listener original. Accept views never own its descriptor.
+use crate::contract::CancellationToken;
 use crate::{ControlledTcpControl, PendingUnixAccept};
 use std::{
     future::poll_fn,
@@ -15,7 +16,6 @@ use std::{
     task::Poll,
 };
 use tokio::{io::unix::AsyncFd, sync::Notify, time::Instant};
-use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone)]
 pub struct UnixListenerClosed {

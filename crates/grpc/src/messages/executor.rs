@@ -1,6 +1,6 @@
 use super::{registry::Requests, CURRENT};
 use std::{future::Future, sync::Arc};
-use tokio_util::sync::CancellationToken;
+use zero_platform_tokio::contract::CancellationToken;
 use zero_platform_tokio::{
     contract::{scope::TaskClass, ChannelError, Impact, Reason, Stage},
     AcceptedTasks,

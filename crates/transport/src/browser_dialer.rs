@@ -45,14 +45,14 @@ impl Drop for AssignmentOriginal {
 struct IdleConnection {
     socket: ControlSocket,
     _permit: Option<tokio::sync::OwnedSemaphorePermit>,
-    cancellation: tokio_util::sync::CancellationToken,
+    cancellation: zero_platform_tokio::contract::CancellationToken,
     original: Option<original::BrowserUse>,
     memory: memory::Memory,
 }
 
 struct Inner {
     idle: IdleQueue,
-    cancellation: tokio_util::sync::CancellationToken,
+    cancellation: zero_platform_tokio::contract::CancellationToken,
     task_timeout: Duration,
     max_task_bytes: usize,
     max_payload_bytes: usize,

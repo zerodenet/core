@@ -1,4 +1,5 @@
 //! A bounded task owner using an existing runtime. No actor or runtime per scope.
+use crate::contract::CancellationToken;
 use std::{
     collections::{HashMap, VecDeque},
     future::{poll_fn, Future},
@@ -15,7 +16,6 @@ use tokio::{
     task::{Id, JoinError, JoinSet},
     time::{timeout_at, Instant},
 };
-use tokio_util::sync::CancellationToken;
 pub use zero_core::component::TaskId;
 
 use super::{

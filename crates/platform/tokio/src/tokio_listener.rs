@@ -1,7 +1,7 @@
 use std::{fmt, io, net::SocketAddr};
 
+use crate::contract::CancellationToken;
 use tokio::{net::TcpListener, sync::Mutex};
-use tokio_util::sync::CancellationToken;
 use zero_traits::{SocketAddress, TcpListener as TcpListenerTrait};
 
 use crate::{

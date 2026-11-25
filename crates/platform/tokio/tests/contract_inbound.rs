@@ -12,8 +12,8 @@ use tokio::{
     sync::Notify,
     time::{timeout, Instant},
 };
-use tokio_util::sync::CancellationToken;
 use zero_core::{component::SessionId, request::RequestFacts};
+use zero_platform_tokio::contract::CancellationToken;
 use zero_platform_tokio::contract::{
     context::{AcceptContext, HandshakeContext},
     inbound::*,

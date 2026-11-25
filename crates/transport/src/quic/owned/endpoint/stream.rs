@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio_util::sync::WaitForCancellationFutureOwned;
+use zero_platform_tokio::contract::WaitForCancellationFutureOwned;
 
 /// Same actual stream first, then its permit: dropping this sealed wrapper
 /// releases the raw stream before returning user capacity. It proves no FD close.

@@ -1,11 +1,11 @@
 use super::owner::Shared;
+use crate::contract::CancellationToken;
 use crate::{
     contract::{scope::TaskJoinWitness, ChannelError},
     ControlledTcpControl,
 };
 use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::{Mutex as AsyncMutex, Notify};
-use tokio_util::sync::CancellationToken;
 use zero_core::component::{ComponentInstanceId, TaskId};
 pub(super) struct Slot {
     pub(super) root_bound: bool,

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
 use zero_core::{component::*, request::*, Address, ProtocolType};
+use zero_platform_tokio::contract::CancellationToken;
 use zero_platform_tokio::contract::{
     context::{OpenContext, RequestIdentity},
     datagram::{BoxDatagramSession, DatagramRequest},

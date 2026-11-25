@@ -1,5 +1,6 @@
 //! Public runtime collaboration contracts. No configuration or kernel dependency.
 pub mod admission;
+pub mod cancellation;
 pub mod component;
 pub mod context;
 pub mod datagram;
@@ -12,7 +13,10 @@ pub mod scope;
 pub mod service;
 pub mod stream;
 
-pub use tokio_util::sync::CancellationToken;
+pub use cancellation::{
+    CancellationToken, DropGuard, DropGuardRef, WaitForCancellationFuture,
+    WaitForCancellationFutureOwned,
+};
 
 pub use zero_error::channel::{
     ChannelError, CleanupFailureReceipt, CloseReason, DeliveryState, Impact, Reason, RetainedError,

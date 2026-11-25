@@ -1,6 +1,7 @@
 //! One native writer registration fans out to explicitly bounded pollers.
 //! External wakers are never cloned, dropped or invoked with I/O/registry locks.
 use super::*;
+use crate::contract::{CancellationToken, WaitForCancellationFutureOwned};
 use std::{
     future::Future,
     pin::Pin,
@@ -10,7 +11,6 @@ use std::{
     },
     task::{Context, Wake, Waker},
 };
-use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
 #[derive(Default)]
 struct Slot(Mutex<Option<Waker>>);
 impl Slot {

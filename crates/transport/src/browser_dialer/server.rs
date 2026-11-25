@@ -36,7 +36,7 @@ impl BrowserDialerServer {
         let registration = registration(local_addr, &options);
         let page_url = registration.page_url.clone();
         let idle = IdleQueue::library(options.idle_capacity)?;
-        let cancellation = tokio_util::sync::CancellationToken::new();
+        let cancellation = zero_platform_tokio::contract::CancellationToken::new();
         let inner = InnerRef::Library(Arc::new(Inner {
             idle: idle.clone(),
             cancellation: cancellation.clone(),
@@ -89,7 +89,7 @@ async fn run(
     idle: IdleQueue,
     permits: Arc<Semaphore>,
     registration: RegistrationRef,
-    cancellation: tokio_util::sync::CancellationToken,
+    cancellation: zero_platform_tokio::contract::CancellationToken,
 ) {
     let mut connections = JoinSet::new();
     loop {
@@ -128,7 +128,7 @@ pub(super) async fn serve(
     stream: TokioSocket,
     idle_queue: IdleQueue,
     registration: RegistrationRef,
-    cancellation: tokio_util::sync::CancellationToken,
+    cancellation: zero_platform_tokio::contract::CancellationToken,
     permit: Option<tokio::sync::OwnedSemaphorePermit>,
     original: Option<super::original::BrowserUse>,
     memory: super::memory::Memory,
@@ -143,7 +143,7 @@ async fn serve_inner(
     mut stream: TokioSocket,
     idle_queue: IdleQueue,
     registration: RegistrationRef,
-    cancellation: tokio_util::sync::CancellationToken,
+    cancellation: zero_platform_tokio::contract::CancellationToken,
     permit: Option<tokio::sync::OwnedSemaphorePermit>,
     original: Option<super::original::BrowserUse>,
     memory: super::memory::Memory,

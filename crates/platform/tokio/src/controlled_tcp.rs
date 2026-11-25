@@ -13,6 +13,7 @@ mod relay;
 mod socket;
 #[cfg(unix)]
 mod unix_connect;
+use crate::contract::CancellationToken;
 use crate::TokioSocket;
 #[cfg(any(unix, windows))]
 pub use connect::PendingTcpConnect;
@@ -29,7 +30,6 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio_util::sync::CancellationToken;
 #[cfg(unix)]
 pub use unix_connect::{PendingUnixAccept, PendingUnixConnect};
 

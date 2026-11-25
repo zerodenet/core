@@ -84,9 +84,9 @@ impl Wait {
 impl Memory {
     pub(super) fn cancellation(
         &self,
-        cancel: tokio_util::sync::CancellationToken,
+        cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> io::Result<(
-        Pin<Box<tokio_util::sync::WaitForCancellationFutureOwned>>,
+        Pin<Box<zero_platform_tokio::contract::WaitForCancellationFutureOwned>>,
         Option<PacketMetadataCredit>,
     )> {
         let header = match self {

@@ -78,7 +78,7 @@ members = [
     "crates/tun",
     "crates/stack",
 ]
-exclude = ["vendor/quinn", "vendor/quinn-udp", "vendor/quinn-proto", "vendor/h3-quinn", "vendor/h2", "vendor/hyper", "vendor/gotatun", "vendor/wintun", "vendor/tokio-util"]
+exclude = ["vendor/quinn", "vendor/quinn-udp", "vendor/quinn-proto", "vendor/h3-quinn", "vendor/h2", "vendor/hyper", "vendor/gotatun", "vendor/wintun"]
 resolver = "2"
 
 [workspace.package]
@@ -97,8 +97,8 @@ strip = "symbols"
 [workspace.dependencies]
 # Keep the reviewed QUIC carrier and local neutral extensions on one API version.
 quinn = { version = "=0.11.9", default-features = false }
-# The reviewed cancellation implementation is vendored below. A newer registry
-# release must not silently replace that implementation during lock generation.
+# Keep PollSender / PollSemaphore on one reviewed crates.io version; panic-safe
+# CancellationToken lives in zero_platform_tokio::contract::cancellation.
 tokio-util = { version = "=0.7.18", features = ["rt"] }
 fs2 = "0.4"
 ipnet = { version = "2.11", features = ["serde"] }
@@ -160,7 +160,6 @@ tempfile.workspace = true
 zero-platform-tokio = { path = "crates/platform/tokio" }
 
 [patch.crates-io]
-tokio-util = { path = "vendor/tokio-util" }
 wintun = { path = "vendor/wintun" }
 gotatun = { path = "vendor/gotatun" }
 h2 = { path = "vendor/h2" }

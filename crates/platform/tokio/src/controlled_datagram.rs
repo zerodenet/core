@@ -119,7 +119,7 @@ struct Entry {
     source_changed: Arc<tokio::sync::Notify>,
     closed_receipt: Arc<std::sync::OnceLock<DatagramCloseReceipt>>,
     provider: std::sync::OnceLock<provider::DatagramProviderRegistration>,
-    retired: tokio_util::sync::CancellationToken,
+    retired: crate::contract::CancellationToken,
     native: Mutex<NativeHandleState>,
     // Prepared before the original fd exists; installed before consuming OS
     // registration/close calls, including panic or cancellation of the caller.
@@ -254,7 +254,7 @@ impl ControlledDatagramOwner {
             source_changed: Arc::new(tokio::sync::Notify::new()),
             closed_receipt: Arc::new(std::sync::OnceLock::new()),
             provider: std::sync::OnceLock::new(),
-            retired: tokio_util::sync::CancellationToken::new(),
+            retired: crate::contract::CancellationToken::new(),
             native: Mutex::new(NativeHandleState::Reserved),
             first_close_failure: std::sync::OnceLock::new(),
             close_running: std::sync::atomic::AtomicBool::new(false),

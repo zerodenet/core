@@ -1,6 +1,6 @@
+use crate::contract::CancellationToken;
 use std::{mem::ManuallyDrop, sync::Arc};
 use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
 use zero_core::{
     component::{NetworkGeneration, RoleInstanceId, SessionId},
     request::Destination,

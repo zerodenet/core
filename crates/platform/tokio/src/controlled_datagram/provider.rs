@@ -11,7 +11,7 @@ struct Provider {
     instance: ComponentInstanceId,
     scope: TaskScopeIdentity,
     driver: OnceLock<TaskJoinWitness>,
-    retired: tokio_util::sync::CancellationToken,
+    retired: crate::contract::CancellationToken,
     closed: Arc<OnceLock<DatagramCloseReceipt>>,
 }
 #[derive(Clone)]

@@ -3,9 +3,9 @@
 use super::*;
 pub(super) mod connections;
 use std::{future::Future, io, num::NonZeroUsize};
-use tokio_util::sync::CancellationToken;
 use tower_service::Service;
 use zero_core::{request::Destination, Address};
+use zero_platform_tokio::contract::CancellationToken;
 use zero_platform_tokio::contract::{
     component::{AcceptedTcpLimits, ResourceDeclaration},
     scope::{TaskClass, TaskScope},

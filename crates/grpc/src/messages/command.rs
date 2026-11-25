@@ -16,7 +16,7 @@ pub(super) struct Command {
     work: Mutex<Option<Work>>,
     frontend: OnceLock<zero_runtime::FrontendCommand>,
     fault: AtomicBool,
-    stop: tokio_util::sync::CancellationToken,
+    stop: zero_platform_tokio::contract::CancellationToken,
     observation: OnceLock<zero_runtime::ApplyObservation>,
     operation: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
     cleanup: OnceLock<std::sync::Arc<std::io::Error>>,

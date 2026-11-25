@@ -24,13 +24,13 @@ pub use accepted_datagram::{AcceptedDatagramAuthority, DatagramPeerLimits};
 pub use accepted_tcp::AcceptedTcpLimits;
 mod bound_attempt;
 mod bound_datagram;
+use crate::contract::CancellationToken;
 pub use bound_attempt::{BoundDatagramAttemptFailure, BoundDatagramRetryReceipt};
 pub use bound_datagram::{
     BoundDatagramRequest, BoundDatagramSocket, BoundDatagramView, DatagramBindingAuthorization,
     DatagramBindingGuard, DatagramBindingId, DatagramBindingIssuer, GrantedBoundDatagram,
 };
 use std::{num::NonZeroUsize, path::PathBuf, sync::Arc};
-use tokio_util::sync::CancellationToken;
 use zero_core::{
     component::{ComponentId, ComponentInstanceId, ComponentRoleIds, ResourceGeneration},
     request::Destination,

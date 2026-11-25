@@ -1,10 +1,9 @@
 //! Synthetic source-policy check, not evidence of a real registration failure.
 use super::*;
-use crate::contract::{lifecycle::ChannelControl, DeliveryState};
+use crate::contract::{lifecycle::ChannelControl, CancellationToken, DeliveryState};
 use crate::controlled_tcp::{socket::Socket, ControlledTcpControl, Shared, State};
 use std::sync::Mutex;
 use tokio::time::{Duration, Instant};
-use tokio_util::sync::CancellationToken;
 use windows_sys::Win32::Networking::WinSock::WSAEMFILE;
 #[tokio::test]
 async fn windows_consumed_registration_unknown_retains_source_identity_and_never_acknowledges_or_retries(

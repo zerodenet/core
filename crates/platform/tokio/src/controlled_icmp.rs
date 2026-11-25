@@ -14,6 +14,7 @@ mod relay;
 mod report;
 #[cfg(test)]
 mod tests;
+use crate::contract::CancellationToken;
 use crate::EgressInterface;
 use std::{
     collections::BTreeMap,
@@ -21,7 +22,6 @@ use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex, MutexGuard},
 };
-use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IcmpReservationId(u64);

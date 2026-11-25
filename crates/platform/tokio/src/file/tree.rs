@@ -1,12 +1,12 @@
 //! One host-granted file session. Dropping a waiter never drops the actual job
 //! or closes the original descriptor. The host owns both independently.
 use super::*;
+use crate::contract::CancellationToken;
 use std::{
     path::PathBuf,
     sync::{Mutex, MutexGuard},
 };
 use tokio::sync::{mpsc, oneshot};
-use tokio_util::sync::CancellationToken;
 mod directory;
 pub enum FileTreeOperation {
     Canonicalize(PathBuf),

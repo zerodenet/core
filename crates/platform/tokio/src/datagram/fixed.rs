@@ -1,4 +1,5 @@
 //! Raw datagram I/O and explicit native close share the original descriptor.
+use crate::contract::CancellationToken;
 use crate::{
     contract::{
         datagram::{
@@ -19,7 +20,6 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::time::{sleep_until, Duration, Instant};
-use tokio_util::sync::CancellationToken;
 use zero_core::{
     component::AssociationId,
     packet::Datagram,

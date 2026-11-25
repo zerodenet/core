@@ -1,5 +1,6 @@
 //! Additive native preparation; existing production dial entrypoints are unchanged.
 use super::prepare;
+use crate::contract::CancellationToken;
 use crate::{
     controlled_tcp::PendingTcpConnect, egress::bind_tcp_to_interface, ControlledTcpControl,
     EgressSelection, TcpConnectError,
@@ -13,7 +14,6 @@ use std::{
     sync::Arc,
 };
 use tokio::net::TcpSocket;
-use tokio_util::sync::CancellationToken;
 use zero_traits::{DialPolicy, IoObserver};
 impl PendingTcpConnect {
     /// Original-controlled readiness I/O to a host-selected local listener.

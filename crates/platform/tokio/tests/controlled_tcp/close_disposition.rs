@@ -9,7 +9,7 @@ async fn concurrent_observer_keeps_live_original_close_pending_without_recording
         listener.accept()
     );
     let (_view, mut control) =
-        ControlledTcpStream::new(socket.unwrap(), tokio_util::sync::CancellationToken::new())
+        ControlledTcpStream::new(socket.unwrap(), crate::contract::CancellationToken::new())
             .unwrap();
     let mut peer = peer.unwrap().0;
     let shared = control.shared.clone();
@@ -44,7 +44,7 @@ async fn panic_after_taking_original_close_retains_same_unknown_source_without_f
         listener.accept()
     );
     let (_io, mut control) =
-        ControlledTcpStream::new(socket.unwrap(), tokio_util::sync::CancellationToken::new())
+        ControlledTcpStream::new(socket.unwrap(), crate::contract::CancellationToken::new())
             .unwrap();
     let mut peer = peer.unwrap().0;
     let observer = control.close_observer();
@@ -101,7 +101,7 @@ async fn ready_native_close_uses_the_same_original_without_inventing_a_request_d
         listener.accept()
     );
     let (view, mut control) =
-        ControlledTcpStream::new(socket.unwrap(), tokio_util::sync::CancellationToken::new())
+        ControlledTcpStream::new(socket.unwrap(), crate::contract::CancellationToken::new())
             .unwrap();
     let _peer = peer.unwrap().0;
     let observer = control.close_observer();

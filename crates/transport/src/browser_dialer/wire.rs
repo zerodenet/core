@@ -25,7 +25,7 @@ pub(super) struct Socket {
     wait: Mutex<Option<Wait>>,
     // The actual underlying prefix/socket is freed before accounting. The
     // caller also retains this exact credit after its outer message buffer.
-    cancelled: Pin<Box<tokio_util::sync::WaitForCancellationFutureOwned>>,
+    cancelled: Pin<Box<zero_platform_tokio::contract::WaitForCancellationFutureOwned>>,
     _cancel_header: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
     memory: Memory,
 }
@@ -34,7 +34,7 @@ impl Socket {
         io: PrefixedSocket,
         http: usize,
         memory: Memory,
-        cancel: tokio_util::sync::CancellationToken,
+        cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> io::Result<Self> {
         let (cancelled, header) = memory.cancellation(cancel)?;
         Ok(Self {

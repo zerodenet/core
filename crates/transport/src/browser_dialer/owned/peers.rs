@@ -59,8 +59,9 @@ impl Peers {
             .map_err(|source| failure(Stage::Prepare, Reason::Capacity).with_source(source))?;
         let buffers = PacketMetadataArc::<crate::browser_dialer::memory::Buffers>::layout()
             .map_err(|source| failure(Stage::Prepare, Reason::Capacity).with_source(source))?;
-        let cancel =
-            PacketMetadataLayout::boxed::<tokio_util::sync::WaitForCancellationFutureOwned>();
+        let cancel = PacketMetadataLayout::boxed::<
+            zero_platform_tokio::contract::WaitForCancellationFutureOwned,
+        >();
         let growth = loop {
             let changed = this.changed.notified();
             tokio::pin!(changed);

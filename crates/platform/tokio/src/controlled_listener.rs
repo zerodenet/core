@@ -12,6 +12,7 @@ pub use accepted::{
 mod native;
 mod owner;
 mod totals;
+use crate::contract::CancellationToken;
 use crate::TokioSocket;
 pub use control::ControlledTcpListenerControl;
 pub use owner::ControlledTcpListenerOwner;
@@ -24,7 +25,6 @@ use std::{
     task::Poll,
 };
 use tokio::net::TcpListener;
-use tokio_util::sync::CancellationToken;
 
 struct State {
     listener: Option<TcpListener>,

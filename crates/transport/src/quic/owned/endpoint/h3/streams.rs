@@ -2,7 +2,7 @@ use super::super::users::Permit;
 use super::*;
 use ::h3::quic::{self, StreamId, WriteBuf};
 use bytes::Buf;
-use tokio_util::sync::WaitForCancellationFutureOwned;
+use zero_platform_tokio::contract::WaitForCancellationFutureOwned;
 
 /// The original adapter (including its pending raw read-chunk future) is
 /// destroyed before returning its actual receive-direction logical capacity.

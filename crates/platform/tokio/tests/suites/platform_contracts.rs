@@ -28,6 +28,9 @@ mod packet_socket_egress;
 #[path = "../contract_scope.rs"]
 mod contract_scope;
 
+#[path = "../contract_cancellation.rs"]
+mod contract_cancellation;
+
 #[path = "../contract_channels.rs"]
 mod contract_channels;
 

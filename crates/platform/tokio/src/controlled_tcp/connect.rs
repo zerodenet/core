@@ -3,6 +3,7 @@ use super::{
     socket::{NativeSocket, Socket},
     ControlledTcpControl, ControlledTcpStream, Shared, State,
 };
+use crate::contract::CancellationToken;
 use crate::{EgressInterface, TcpConnectError};
 use std::{
     future::poll_fn,
@@ -12,7 +13,6 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
 use zero_traits::IoObserver;
 
 /// Native TCP owner prepared before the first connect await.
