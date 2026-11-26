@@ -161,16 +161,23 @@ pub(super) async fn accept(
             native.bind_caller(binding).map_err(std::io::Error::other)?;
             let runtime = runtime.with_caller_native(native.registration());
             let (session, stream) = if sniff {
-                crate::inbound::tun::sniff_tcp_target(session, stream).await
+                tokio::select! { biased;
+                    sniffed = crate::inbound::tun::sniff_tcp_target(session, stream) => sniffed,
+                    _ = stop.cancelled() => return Ok(()),
+                }
             } else {
                 (session, ReplayStream::new(stream, Vec::new()))
             };
+            if stop.is_cancelled() {
+                return Ok(());
+            }
             native.enter().map_err(std::io::Error::other)?;
             let protocol = NoClientResponseStreamProtocol::new();
             let result = tokio::select! { biased;
                 result = runtime.serve(session, stream, &protocol) => result,
                 _ = stop.cancelled() => Ok(()),
             };
+            native.registration().note_no_gateway_opened();
             native.consume_business_result(result)
         });
         if let Err(source) = registered {

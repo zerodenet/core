@@ -48,21 +48,46 @@ impl NativeRegistration {
             admitted: false,
         })
     }
+    pub(crate) fn note_no_gateway_opened(&self) {
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        let mut state = owner.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(record) = state.records.get_mut(&self.id) else {
+            return;
+        };
+        if record.entered
+            && record.admission_active == 0
+            && record.gateways == 0
+            && !record.uncovered_gateway
+            && !record.carrier_conflict
+            && record.dns.is_none()
+            && record.carrier.is_none()
+            && record.additional_carriers.is_empty()
+            && record.pending_carriers.is_empty()
+            && record.logical_datagrams.is_empty()
+            && !record.receiver_starting
+            && record.receiver.is_none()
+            && record.protocols.is_none()
+        {
+            record.no_gateway_opened = true;
+        }
+    }
     pub(super) fn settle_pre_admission(&self) -> Result<Option<bool>, ChannelError> {
         let Some(owner) = self.owner.upgrade() else {
             return Ok(Some(false));
         };
-        let caller = {
+        let (caller, datagram) = {
             let state = owner.lock().unwrap_or_else(|error| error.into_inner());
             let Some(record) = state.records.get(&self.id) else {
                 return Ok(Some(true));
             };
-            if !record.no_business_admission {
+            if !record.no_business_admission && !record.no_gateway_opened {
                 return Ok(None);
             }
             if !record.retiring
                 || record.admission_active != 0
-                || record.business_admitted
+                || (!record.no_gateway_opened && record.business_admitted)
                 || record.gateways != 0
                 || record.uncovered_gateway
                 || record.carrier_conflict
@@ -70,14 +95,14 @@ impl NativeRegistration {
                 || record.carrier.is_some()
                 || !record.additional_carriers.is_empty()
                 || !record.pending_carriers.is_empty()
-                || record.datagram.is_some()
                 || !record.logical_datagrams.is_empty()
                 || record.receiver_starting
                 || record.receiver.is_some()
+                || record.protocols.is_some()
             {
                 return Ok(None);
             }
-            record.caller.clone()
+            (record.caller.clone(), record.datagram.clone())
         };
         let Some(caller) = caller else {
             return Ok(Some(false));
@@ -89,6 +114,19 @@ impl NativeRegistration {
             return Ok(Some(false));
         };
         let actual = witness.try_joined();
+        let datagram_settled = datagram.is_none_or(|provider| {
+            provider.closed().is_some_and(|closed| {
+                let original = provider.identity();
+                let actual_closed = closed.identity();
+                closed.matches(&provider)
+                    && actual_closed.instance == original.instance
+                    && actual_closed.association == original.association
+                    && actual_closed.task == original.task
+                    && actual_closed.task == joined.task()
+                    && closed.joined().task() == joined.task()
+                    && closed.joined().class() == joined.class()
+            })
+        });
         // No admission/gateway was issued by the actual session phase. This
         // does not excuse its OS metadata HANDLE, blocking join or ACK, and
         // never says the shared Source/main/native original has closed.
@@ -97,7 +135,8 @@ impl NativeRegistration {
                 actual.id() == joined.task()
                     && actual.class() == joined.class()
                     && actual.registration_released()
-            }) && caller.process_retired(),
+            }) && caller.process_retired()
+                && datagram_settled,
         ))
     }
 }

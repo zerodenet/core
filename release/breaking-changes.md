@@ -132,7 +132,7 @@ Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留�
 
 | 版本 | 影响面 | 迁移结论 |
 |------|--------|----------|
-| `Unreleased` | 共享资源替换、VMess cipher 配置、Raw-IP Direct 资源关闭 | 已迁移的严格路径确认停旧后才启动替代；WireGuard outer_udp_proxy 尚有临时兼容债务；旧私有 `zero` 配置需迁移为 `zero-plus`；Raw-IP 已覆盖路径使用真实任务与原生关闭凭据 <!-- version-contract:unreleased-row --> |
+| `Unreleased` | 共享资源替换、VMess cipher 配置、Raw-IP Direct 资源关闭 | 已迁移的严格路径与 WireGuard `outer_udp_proxy` 均确认停旧后才启动替代；旧私有 `zero` 配置需迁移为 `zero-plus`；Raw-IP 已覆盖路径使用真实任务与原生关闭凭据 <!-- version-contract:unreleased-row --> |
 | `0.0.1` | 首个统一正式版、TUN 路由恢复 | 发布编号重置；配置与控制面仍为 V1，旧版本需手动安装 |
 | `0.0.16-rc.202609070904` | Direct 入站、监听热更新、构建能力发现 | Direct 默认绑定 TCP 与 UDP；仅需 TCP 时使用现有 `udp.enabled: false`，面板按能力事实判断支持 |
 | `0.0.16-rc.202609060636` | CLI 配置预检查、内核安装器 | `zero validate` 不再启动运行时或访问 Fake-IP / 配额持久化状态；可与运行中的内核并行校验 |
@@ -218,11 +218,11 @@ HTTP 字面量及域名监听使用协议的 `ComponentFactory`/`InboundSource` 
 
 该路径按需记录最多 4096 个在用、退役或 Unknown 原始连接，每连接一个宿主主任务；达到上限暂停 accept，不预建任务/连接。当前额度由内核装配提供，统一的用户配置入口尚未完成。剩余 10 个 adapter 的旧 listener 链仍未整体迁移，本项不是接入职责域或整体重构完成的证明。
 
-### WireGuard outer_udp_proxy 临时生命周期例外
+### WireGuard outer_udp_proxy 原件关闭与无重叠换代收口
 
-历史状态（2026-10-31）：用户确认既有 `outer_udp_proxy` 及重连历史的兼容生命周期只作为临时方案保留。当时换代仍有 30 秒退役宽限，可能短暂并存新旧资源；当时的原始载体 native 关闭凭据尚未补齐。当前源码的私有执行链、宽限重叠和旧 slot 支架已移除，现状见 [TEMP-WG 记录](../design/v0.0.3/lifecycle.md#temp-wg-outer-udp-01)，债务仍未关闭。这条路径不能宣称满足严格的确认停旧后启新，也不能计入完整 native 所有权或整体资源生命周期已完成。
+历史状态（2026-10-31）：早期 `outer_udp_proxy` 及重连历史的兼容生命周期曾保留 30 秒退役宽限与私有执行链（`TEMP-WG-OUTER-UDP-01`）。当前源码已整体切入标准 Source、真实 wire/reconnect `TaskScope` 与逐次尝试的原件/用户账本，私有构造器、独立兼容重连 worker、30 秒重叠宽限及旧 slot 支架均已移除；重连、对端地址漫游、网络/DNS 换代与失败回滚均先归还旧视图并确认原 provider 关闭凭据与 `TaskScope` join 后才申请替代资源，无新旧重叠。对应回归位于 `crates/proxy/src/adapters/wireguard/lifecycle/tests/production.rs` 与 `crates/proxy/src/runtime/raw_ip/device/tests/production/standalone/outer.rs`，`TEMP-WG-OUTER-UDP-01` 已正式关闭。
 
-本例外不扩大到其他资源，不开放相应普通 native 登记，不新增协议组合，不要求客户端或面板改动。后续由内核补齐实际原始所有者、真实任务退出、转交资源归还与原始关闭凭据，移除兼容换代重叠，并按 TEMP-WG-OUTER-UDP-01 的验收条件关闭债务。旧接口删除或其他路径测试通过均不构成该项完成证据。
+本收口不新增协议组合，不改变公开 V1 配置/API/events、CLI 或 FFI，客户端与面板无需改动。
 
 ### VLESS and Trojan root MUX prefixes for VMess gRPC UDP
 

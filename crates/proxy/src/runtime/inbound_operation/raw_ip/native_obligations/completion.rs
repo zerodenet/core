@@ -20,6 +20,7 @@ impl NativeRegistration {
             .gateways
             .checked_add(1)
             .ok_or_else(|| rejected(Reason::Capacity))?;
+        record.no_gateway_opened = false;
         record.uncovered_gateway |= !covered;
         Ok(())
     }
@@ -188,6 +189,9 @@ impl NativeObligations {
                     || record.receiver.is_some()
                     || record.dns.is_some()
                     || record.no_business_admission
+                    || record.no_gateway_opened
+                    || !record.entered
+                    || (record.caller.is_some() && !record.retiring)
                     || !record.pending_carriers.is_empty()
                     || record.protocols.is_some()
                     || record.gateways > 0

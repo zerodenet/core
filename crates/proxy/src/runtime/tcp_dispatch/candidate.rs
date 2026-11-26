@@ -54,13 +54,10 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
                         })
                 })
             }
-            PreparedTcpCandidateExecution::Block { .. } => {
-                !matches!(session.target, zero_core::Address::Domain(_))
-                    && !matches!(
-                        session.effective_direct_target(),
-                        zero_core::Address::Domain(_)
-                    )
-            }
+            PreparedTcpCandidateExecution::Block { .. } => !matches!(
+                session.effective_direct_target(),
+                zero_core::Address::Domain(_)
+            ),
         };
         caller
             .declare_gateway(covered)

@@ -126,15 +126,14 @@ pub(crate) fn execute_prepared_udp_candidate<'a>(
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(native) = dispatch.runtime.native() {
             let covered = match &prepared {
-                PreparedUdpLeafCandidate::Block { .. } => {
-                    !matches!(session.target, zero_core::Address::Domain(_))
-                }
-                PreparedUdpLeafCandidate::Direct(_) => {
-                    !matches!(session.target, zero_core::Address::Domain(_))
-                        && !matches!(
-                            session.effective_direct_target(),
-                            zero_core::Address::Domain(_)
-                        )
+                PreparedUdpLeafCandidate::Block { .. } | PreparedUdpLeafCandidate::Direct(_) => {
+                    // TUN QUIC sniffing sets `session.target` to the recovered
+                    // SNI domain while preserving the original literal IP in
+                    // `session.direct_target`, so no DNS lookup occurs.
+                    !matches!(
+                        session.effective_direct_target(),
+                        zero_core::Address::Domain(_)
+                    )
                 }
                 #[cfg(feature = "upstream-association-runtime")]
                 PreparedUdpLeafCandidate::Datagram(_) => false,

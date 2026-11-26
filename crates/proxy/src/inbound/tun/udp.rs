@@ -338,6 +338,10 @@ fn spawn_association(
         #[cfg(not(feature = "raw-ip-runtime"))]
         let result = relay.await;
         #[cfg(feature = "raw-ip-runtime")]
+        if let Some(native) = &native {
+            native.registration().note_no_gateway_opened();
+        }
+        #[cfg(feature = "raw-ip-runtime")]
         let result = result.map_err(|error| match &native {
             Some(native) => EngineError::Io(native.retain_error(error)),
             None => error,

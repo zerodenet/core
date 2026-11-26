@@ -32,5 +32,5 @@ identity checks and post-removal readback. Do not downgrade to a binary unaware
 of pending intents while such records remain unresolved.
 
 This recovery concerns route metadata only. It does not substitute for original
-TUN/helper/monitor/controller closure or Scope joins. Apple authorization and
-TEMP-WG runtime acceptance are separate and remain deferred.
+TUN/helper/monitor/controller closure or Scope joins. Apple authorization is
+tracked separately from route-journal recovery.

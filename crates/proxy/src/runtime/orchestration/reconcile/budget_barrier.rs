@@ -347,10 +347,11 @@ pub(super) async fn pause_sources<'a>(
         }
     }
     #[cfg(feature = "raw-ip-runtime")]
-    if packet_changed
-        || carrier_changed
-        || ring_changed
-        || macos_helper_budget_changed(previous, next)
+    if !proxy.has_tun_packet_budget_recovery()
+        && (packet_changed
+            || carrier_changed
+            || ring_changed
+            || macos_helper_budget_changed(previous, next))
     {
         if let Some(original) = proxy
             .inbound_owners

@@ -399,6 +399,9 @@ fn loopback_and_link_local_bootstrap_addresses_do_not_get_physical_host_routes()
         "::",
         "::1",
         "fe80::1",
+        "fec0:0:0:ffff::1",
+        "fec0:0:0:ffff::2",
+        "fec0:0:0:ffff::3",
         "ff02::1",
     ] {
         assert!(!tun_route_exclusion_required(address.parse().unwrap()));

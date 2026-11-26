@@ -104,6 +104,7 @@ fn tun_route_exclusion_required(address: IpAddr) -> bool {
                 && !address.is_loopback()
                 && !address.is_multicast()
                 && !address.is_unicast_link_local()
+                && (address.segments()[0] & 0xffc0) != 0xfec0
         }
     }
 }
@@ -639,17 +640,17 @@ impl Proxy {
         // Both notifications and the actual original JoinHandles remain in
         // this same published control if this waiter is cancelled or expires.
         let stopped = completion
-            .wait_main(tokio::time::Instant::now() + Duration::from_secs(5))
+            .wait_main(tokio::time::Instant::now() + Duration::from_secs(15))
             .await;
         let route_cleanup = completion
-            .wait_routes(tokio::time::Instant::now() + Duration::from_secs(5))
+            .wait_routes(tokio::time::Instant::now() + Duration::from_secs(15))
             .await;
         let result = completion::join_results(stopped, route_cleanup);
         #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
         let result = completion::join_results(
             result,
             completion
-                .wait_native(tokio::time::Instant::now() + Duration::from_secs(5))
+                .wait_native(tokio::time::Instant::now() + Duration::from_secs(15))
                 .await,
         );
         let result = result.map_err(EngineError::Io);

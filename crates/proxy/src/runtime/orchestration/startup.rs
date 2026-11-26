@@ -110,7 +110,7 @@ impl OrchestrationState {
         // component starts no I/O or tasks; this is not a new admission budget.
         #[cfg(feature = "raw-ip-runtime")]
         if config.runtime.tun.is_some() {
-            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
             let mut prepared = proxy
                 .protocols
                 .prepare_resource_start(config.clone(), deadline)
@@ -186,9 +186,16 @@ impl OrchestrationState {
         .with_preparing(self.preparing_inbounds.clone());
         #[cfg(feature = "managed-stream-runtime")]
         let prepared_services = proxy.protocols.prepare_inbound_services(&config)?;
+        #[cfg(not(feature = "raw-ip-runtime"))]
         proxy
             .reconcile_configured_tun_for_config(config.clone())
             .await?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if config.runtime.tun.is_none() {
+            proxy
+                .reconcile_configured_tun_for_config(config.clone())
+                .await?;
+        }
         #[cfg(feature = "raw-ip-runtime")]
         let prepared_generation = proxy.egress_interface.generation();
         #[cfg(feature = "raw-ip-runtime")]

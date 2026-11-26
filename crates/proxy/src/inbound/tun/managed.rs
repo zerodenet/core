@@ -271,7 +271,7 @@ impl Proxy {
     }
 }
 fn deadline() -> Instant {
-    Instant::now() + Duration::from_secs(5)
+    Instant::now() + Duration::from_secs(15)
 }
 #[derive(Debug)]
 struct StartFailure {

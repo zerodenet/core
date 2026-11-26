@@ -111,3 +111,62 @@ async fn rejected_pre_admission_metadata_waits_actual_caller_join_without_poison
     assert_eq!(receipt.terminal().joined_tasks(), 2);
     registry.release_closed(receipt, |_| Ok(())).unwrap();
 }
+
+#[tokio::test]
+async fn in_flight_pre_gateway_cancellation_waits_for_caller_and_settles_on_shutdown() {
+    let proxy = Proxy::new(
+        zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
+    )
+    .unwrap();
+    let registry = Arc::new(InboundOwnerRegistry::default());
+    let (stop, _) = watch::channel(false);
+    let installed = registry
+        .install("pre-gateway-cancel", &proxy.protocols, 1, stop)
+        .unwrap();
+    let group = installed.child_tasks(NonZeroUsize::MIN).unwrap();
+    let host = installed.tasks();
+    let owner = installed.owner();
+    let native = NativeObligations::new(1, 0, 0);
+    installed.register_after_scope(native.resource()).unwrap();
+    let (mut reader, _writer) = tokio::io::duplex(1);
+    let cancel_driver = host.cancellation();
+    owner
+        .spawn_driver(async move {
+            tokio::select! {
+                result = reader.read_u8() => { result?; Ok(()) }
+                _ = cancel_driver.cancelled() => Ok(()),
+            }
+        })
+        .unwrap();
+    owner.seal_listener_installation();
+    let mut permit = native.reserve(ChildKind::Tcp).unwrap();
+    let (entered_tx, entered_rx) = oneshot::channel();
+    group
+        .spawn_bound(&host, move |binding| async move {
+            binding.wait_bound().await.map_err(std::io::Error::other)?;
+            let stop = binding.cancellation();
+            permit.bind_caller(binding).map_err(std::io::Error::other)?;
+            permit.enter().map_err(std::io::Error::other)?;
+            let phase = permit
+                .registration()
+                .begin_session_admission()
+                .map_err(std::io::Error::other)?;
+            phase.admitted();
+            entered_tx.send(()).unwrap();
+            stop.cancelled().await;
+            permit.registration().note_no_gateway_opened();
+            permit.consume_business_result(Ok(()))
+        })
+        .unwrap();
+    entered_rx.await.unwrap();
+    let end = Instant::now() + Duration::from_secs(5);
+    let receipt = registry
+        .confirm_shutdown("pre-gateway-cancel", end)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.terminal().identity(), owner.identity());
+    assert!(receipt.terminal().failure().is_none());
+    assert!(native.0.lock().unwrap().records.is_empty());
+    registry.release_closed(receipt, |_| Ok(())).unwrap();
+}

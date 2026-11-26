@@ -320,3 +320,86 @@ async fn actual_source_reconnect_keeps_the_wire_and_closes_previous_native_befor
     joined(&device, &device_workers);
     replacement_running.shutdown().await.unwrap();
 }
+
+#[cfg(feature = "socks5")]
+#[tokio::test]
+async fn outer_endpoint_roaming_and_failed_candidate_rollback_confirm_old_native_close_without_overlap(
+) {
+    let outer_config = RuntimeConfig::parse(
+        r#"{"inbounds":[{"tag":"outer-in","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"route":{"final":{"type":"direct"}}}"#,
+    )
+    .unwrap();
+    let outer = crate::Proxy::new(outer_config.clone()).unwrap();
+    let outer_running = outer.spawn();
+    handle(&outer)
+        .apply_runtime_config_and_wait(outer_config, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let source = outer
+        .system_tun_source_registry()
+        .owner("outer-in")
+        .unwrap();
+    source.wait_ready().await.unwrap();
+    let endpoint = *source.original_listener_address.get().unwrap();
+    let peer_a = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let peer_b = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let initial = config(peer_a.local_addr().unwrap(), Some(endpoint), false);
+    let proxy = crate::Proxy::new(initial.clone()).unwrap();
+    let running = proxy.spawn();
+    handle(&proxy)
+        .apply_runtime_config_and_wait(initial.clone(), Duration::from_secs(5))
+        .await
+        .unwrap();
+    let mut packet = [0; 2048];
+    tokio::time::timeout(Duration::from_secs(5), peer_a.recv_from(&mut packet))
+        .await
+        .unwrap()
+        .unwrap();
+    let first_device = devices(&proxy).remove(0);
+    let first_workers = worker_census(&first_device);
+    let first_source = originals(&proxy).remove(0);
+
+    // Endpoint change replaces the WireGuard outbound without overlapping old workers.
+    let roamed = config(peer_b.local_addr().unwrap(), Some(endpoint), false);
+    handle(&proxy)
+        .apply_runtime_config_and_wait(roamed.clone(), Duration::from_secs(5))
+        .await
+        .unwrap();
+    joined(&first_device, &first_workers);
+    assert!(first_source.is_retired());
+    tokio::time::timeout(Duration::from_secs(5), peer_b.recv_from(&mut packet))
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Candidate bind conflict rolls back to the last-known-good WireGuard outer path
+    // after retiring the failed transition's stopped generation.
+    let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let occupied_port = occupied.local_addr().unwrap().port();
+    let roamed_device = devices(&proxy).remove(0);
+    let roamed_workers = worker_census(&roamed_device);
+    let mut bad_candidate = serde_json::to_value(changed(roamed.clone())).unwrap();
+    bad_candidate["inbounds"] = serde_json::json!([{
+        "tag": "conflict-in",
+        "listen": { "address": "127.0.0.1", "port": occupied_port },
+        "protocol": { "type": "socks5" }
+    }]);
+    let bad_candidate = RuntimeConfig::parse(&bad_candidate.to_string()).unwrap();
+    assert!(handle(&proxy)
+        .apply_runtime_config_and_wait(bad_candidate, Duration::from_secs(5))
+        .await
+        .is_err());
+    joined(&roamed_device, &roamed_workers);
+    let recovered_device = devices(&proxy).remove(0);
+    let recovered_workers = worker_census(&recovered_device);
+    assert!(!Arc::ptr_eq(&roamed_device, &recovered_device));
+    tokio::time::timeout(Duration::from_secs(5), peer_b.recv_from(&mut packet))
+        .await
+        .unwrap()
+        .unwrap();
+
+    running.shutdown().await.unwrap();
+    joined(&recovered_device, &recovered_workers);
+    drop(occupied);
+    outer_running.shutdown().await.unwrap();
+}

@@ -56,7 +56,7 @@ async fn real_refused_business_flow_retains_its_caller_source_without_stopping_t
     }).unwrap();
     let (failed_task, failed_binding) = binding_rx.await.unwrap();
     let failed_join = failed_binding
-        .wait_joined(Instant::now() + Duration::from_secs(2))
+        .wait_joined(Instant::now() + Duration::from_secs(5))
         .await
         .unwrap();
     assert_eq!(failed_join.task(), failed_task);

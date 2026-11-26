@@ -144,7 +144,7 @@ async fn exercise_outer() {
         .is_some_and(|joined| witness.matches_joined(&joined) && joined.registration_released())));
     assert!(
         origin.closed().is_none(),
-        "physical TEMP debt is not replaced by logical Scope completion"
+        "logical software Source never fabricates a physical native-close receipt"
     );
     assert!(
         physical.closed().unwrap().matches(&physical),
