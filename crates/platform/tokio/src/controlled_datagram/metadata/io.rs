@@ -57,24 +57,12 @@ fn send_native(
             None,
         );
     };
-    let native_transmit = quinn_udp::Transmit {
-        destination: transmit.destination,
-        contents: transmit.contents,
-        src_ip: transmit.source_ip,
-        ecn: transmit.ecn.map(DatagramEcn::native),
-        segment_size: transmit.segment_size,
-    };
     let result = socket
         .inner
         .try_io(Interest::WRITABLE, || {
             shared
                 .state
-                .try_send_outcome((&socket.inner).into(), &native_transmit)
-        })
-        .map(|outcome| MetadataSendOutcome {
-            bytes: outcome.bytes,
-            datagrams: outcome.datagrams,
-            complete: outcome.complete,
+                .try_send_outcome(socket2::SockRef::from(&socket.inner), transmit)
         })
         .map_err(MetadataSendFailure::native);
     (result, socket.observer.clone())
@@ -110,7 +98,7 @@ impl MetadataDatagramRx {
         {
             return Poll::Ready(self.shared.check().map(|()| 0));
         }
-        if buffers.is_empty() || metadata.len() < buffers.len().min(quinn_udp::BATCH_SIZE) {
+        if buffers.is_empty() || metadata.len() < buffers.len().min(sys::BATCH_SIZE) {
             return Poll::Ready(Err(std_io::Error::new(
                 std_io::ErrorKind::InvalidInput,
                 "UDP receive metadata capacity is too small",
@@ -149,11 +137,11 @@ fn recv_native(
             Poll::Ready(Err(error)) => break Poll::Ready(Err(error)),
             Poll::Ready(Ok(())) => {}
         }
-        let mut native_metadata = [quinn_udp::RecvMeta::default(); quinn_udp::BATCH_SIZE];
-        let count = buffers.len().min(quinn_udp::BATCH_SIZE);
+        let mut native_metadata = [MetadataReceive::default(); sys::BATCH_SIZE];
+        let count = buffers.len().min(sys::BATCH_SIZE);
         match socket.inner.try_io(Interest::READABLE, || {
             shared.state.recv(
-                (&socket.inner).into(),
+                socket2::SockRef::from(&socket.inner),
                 &mut buffers[..count],
                 &mut native_metadata[..count],
             )
@@ -161,9 +149,7 @@ fn recv_native(
             Err(error) if error.kind() == std_io::ErrorKind::WouldBlock => continue,
             Err(error) => break Poll::Ready(Err(error)),
             Ok(count) => {
-                for (out, native) in metadata.iter_mut().zip(native_metadata).take(count) {
-                    *out = MetadataReceive::from_native(native);
-                }
+                metadata[..count].copy_from_slice(&native_metadata[..count]);
                 break Poll::Ready(Ok(count));
             }
         }

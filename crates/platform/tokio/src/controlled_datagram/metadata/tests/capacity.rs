@@ -32,9 +32,7 @@ async fn probe_attempt_capacity_failure_closes_main_and_never_invents_smaller_ca
     limits.probe_attempts_per_initialization = bound(1);
     // On kernels requiring GSO and GRO native tests, the second real probe
     // cannot be admitted. Old kernels may need only the GRO probe.
-    if quinn_udp::controlled::capability_without_probe(quinn_udp::controlled::ProbeKind::Gso)
-        .is_some()
-    {
+    if super::super::sys::capability_without_probe(super::super::sys::ProbeKind::Gso).is_some() {
         return;
     }
     let mut owner = MetadataOwner::new(limits).unwrap();

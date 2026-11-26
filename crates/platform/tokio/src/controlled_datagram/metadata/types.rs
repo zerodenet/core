@@ -7,19 +7,20 @@ pub enum DatagramEcn {
     Ce,
 }
 impl DatagramEcn {
-    pub(super) fn native(self) -> quinn_udp::EcnCodepoint {
+    pub(super) fn as_bits(self) -> u8 {
         match self {
-            Self::Ect0 => quinn_udp::EcnCodepoint::Ect0,
-            Self::Ect1 => quinn_udp::EcnCodepoint::Ect1,
-            Self::Ce => quinn_udp::EcnCodepoint::Ce,
+            Self::Ect0 => 0b10,
+            Self::Ect1 => 0b01,
+            Self::Ce => 0b11,
         }
     }
-    fn from_native(ecn: quinn_udp::EcnCodepoint) -> Self {
-        match ecn {
-            quinn_udp::EcnCodepoint::Ect0 => Self::Ect0,
-            quinn_udp::EcnCodepoint::Ect1 => Self::Ect1,
-            quinn_udp::EcnCodepoint::Ce => Self::Ce,
-        }
+    pub(super) fn from_bits(bits: u8) -> Option<Self> {
+        Some(match bits & 0b11 {
+            0b10 => Self::Ect0,
+            0b01 => Self::Ect1,
+            0b11 => Self::Ce,
+            _ => return None,
+        })
     }
 }
 /// Borrowed until the actual native call returns. No payload queue or copy.
@@ -58,17 +59,6 @@ impl Default for MetadataReceive {
         }
     }
 }
-impl MetadataReceive {
-    pub(super) fn from_native(meta: quinn_udp::RecvMeta) -> Self {
-        Self {
-            source: meta.addr,
-            destination_ip: meta.dst_ip,
-            len: meta.len,
-            stride: meta.stride,
-            ecn: meta.ecn.map(DatagramEcn::from_native),
-        }
-    }
-}
 /// A local syscall fact, never an acknowledgment from the remote peer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MetadataSendOutcome {
@@ -76,6 +66,23 @@ pub struct MetadataSendOutcome {
     pub datagrams: usize,
     /// If false, only this prefix was submitted. Do not replay the whole input.
     pub complete: bool,
+}
+impl MetadataSendOutcome {
+    pub(super) fn from_bytes(transmit: &MetadataTransmit<'_>, bytes: usize) -> Self {
+        let stride = transmit
+            .segment_size
+            .unwrap_or(transmit.contents.len())
+            .max(1);
+        Self {
+            bytes,
+            datagrams: if transmit.contents.is_empty() {
+                1
+            } else {
+                bytes.div_ceil(stride)
+            },
+            complete: bytes == transmit.contents.len(),
+        }
+    }
 }
 
 /// Distinguishes a host/admission rejection from an actual native send error.

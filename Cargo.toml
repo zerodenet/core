@@ -78,7 +78,7 @@ members = [
     "crates/tun",
     "crates/stack",
 ]
-exclude = ["vendor/quinn", "vendor/quinn-udp", "vendor/quinn-proto", "vendor/h2", "vendor/hyper", "vendor/gotatun"]
+exclude = ["vendor/quinn", "vendor/quinn-proto", "vendor/h2", "vendor/hyper", "vendor/gotatun"]
 resolver = "2"
 
 [workspace.package]
@@ -167,7 +167,6 @@ rustls = { path = "vendor/rustls" }
 openssl-sys = { path = "vendor/openssl-sys-0.9.117-openssl4" }
 quinn = { path = "vendor/quinn" }
 quinn-proto = { path = "vendor/quinn-proto" }
-quinn-udp = { path = "vendor/quinn-udp" }
 
 # Integration suites are explicit; scripts/check-test-layout.py guards coverage.
 

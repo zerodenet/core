@@ -1,6 +1,6 @@
 //! Capability probes are original sockets in an owner that predates creation.
+use super::sys::{self, NativeProbes, ProbeKind};
 use super::*;
-use quinn_udp::controlled::{NativeProbes, ProbeKind};
 #[derive(Debug)]
 pub(super) struct Probes {
     pub(super) owner: ControlledDatagramOwner,
@@ -82,7 +82,7 @@ impl Probes {
 }
 impl NativeProbes for Probes {
     fn detect(&mut self, kind: ProbeKind) -> std_io::Result<usize> {
-        if let Some(value) = quinn_udp::controlled::capability_without_probe(kind) {
+        if let Some(value) = sys::capability_without_probe(kind) {
             return Ok(value);
         }
         let socket = self.create()?;
@@ -91,7 +91,7 @@ impl NativeProbes for Probes {
             let NativeHandleState::Raw(original) = &*native else {
                 return Err(std_io::Error::other("owned native probe is not raw"));
             };
-            quinn_udp::controlled::probe_owned_socket(kind, original.into())
+            sys::probe_owned_socket(kind, socket2::SockRef::from(original))
         };
         let result = result.map_err(|error| {
             let error = Arc::new(error);

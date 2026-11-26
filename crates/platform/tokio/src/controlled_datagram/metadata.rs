@@ -8,6 +8,7 @@ pub use native_close::MetadataNativeClose;
 mod poller;
 mod probes;
 pub mod source_totals;
+mod sys;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -78,7 +79,7 @@ pub struct MetadataDatagramObservation {
 }
 struct Shared {
     socket: ControlledDatagramSocket,
-    state: quinn_udp::UdpSocketState,
+    state: sys::UdpSocketState,
     pollers: Arc<poller::Broker>,
     sends: tokio::sync::Semaphore,
     send_limit: NonZeroUsize,
@@ -99,7 +100,7 @@ impl Shared {
         MetadataCapabilities {
             transmit_segments: self.state.max_gso_segments(),
             receive_segments: self.state.gro_segments(),
-            batch_size: quinn_udp::BATCH_SIZE,
+            batch_size: sys::BATCH_SIZE,
             may_fragment: self.state.may_fragment(),
         }
     }

@@ -102,7 +102,10 @@ impl MetadataOwner {
             let NativeHandleState::Raw(original) = &*native else {
                 unreachable!("installed raw main original")
             };
-            quinn_udp::UdpSocketState::new_with_owned_probes(original.into(), &mut self.probes)
+            sys::UdpSocketState::new_with_owned_probes(
+                socket2::SockRef::from(original),
+                &mut self.probes,
+            )
         };
         let state = match setup {
             Ok(state) => state,

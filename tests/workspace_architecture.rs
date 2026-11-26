@@ -910,7 +910,6 @@ fn vendor_directory_and_crates_io_patches_are_frozen_to_shrinking_allowlist() {
         "openssl-sys-0.9.117-openssl4",
         "quinn",
         "quinn-proto",
-        "quinn-udp",
         "rustls",
     ];
 

@@ -8,12 +8,9 @@ use windows_sys::Win32::Networking::WinSock;
 use super::{CMsgHdr, MsgHdr};
 
 #[derive(Copy, Clone)]
-#[repr(align(8))] // Conservative bound for align_of<WinSock::CMSGHDR>
-pub(crate) struct Aligned<T>(pub(crate) T);
+#[repr(align(8))]
+pub(in super::super) struct Aligned<T>(pub(in super::super) T);
 
-/// Helpers for [`WinSock::WSAMSG`]
-// https://learn.microsoft.com/en-us/windows/win32/api/ws2def/ns-ws2def-wsamsg
-// https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/Networking/WinSock/struct.WSAMSG.html
 impl MsgHdr for WinSock::WSAMSG {
     type ControlMessage = WinSock::CMSGHDR;
 
@@ -45,9 +42,6 @@ impl MsgHdr for WinSock::WSAMSG {
     }
 }
 
-/// Helpers for [`WinSock::CMSGHDR`]
-// https://learn.microsoft.com/en-us/windows/win32/api/ws2def/ns-ws2def-wsacmsghdr
-// https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/Networking/WinSock/struct.CMSGHDR.html
 impl CMsgHdr for WinSock::CMSGHDR {
     fn cmsg_len(length: usize) -> usize {
         cmsgdata_align(mem::size_of::<Self>()) + length
@@ -67,13 +61,11 @@ impl CMsgHdr for WinSock::CMSGHDR {
         self.cmsg_len = len as _;
     }
 
-    fn len(&self) -> usize {
+    fn cmsg_byte_len(&self) -> usize {
         self.cmsg_len as _
     }
 }
 
-// Helpers functions for `WinSock::WSAMSG` and `WinSock::CMSGHDR` are based on C macros from
-// https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/shared/ws2def.h#L741
 fn cmsghdr_align(length: usize) -> usize {
     (length + mem::align_of::<WinSock::CMSGHDR>() - 1) & !(mem::align_of::<WinSock::CMSGHDR>() - 1)
 }

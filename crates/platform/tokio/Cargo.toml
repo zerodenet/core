@@ -18,8 +18,6 @@ native-packet-origin = ["zero-tun/device"]
 [dependencies]
 # Actual controlled journal rotation retains its original temporary path.
 tempfile.workspace = true
-# Native UDP metadata helper only; no Quinn runtime or protocol dependency.
-quinn-udp = { version = "=0.5.16", default-features = false }
 socket2 = { version = "0.6", features = ["all"] }
 # Read-only rule mappings retain the existing zero-rule carrier version.
 memmap2 = "0.9"
