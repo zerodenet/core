@@ -158,10 +158,11 @@ impl OrchestrationState {
         }
         // Accepted configuration compensation and its consumers have drained.
         // Confirm the actual DNS query/wire workers before retiring components;
-        // this does not claim resolver pools or FakeIP persistence are closed.
+        // outlive Provider::finish_query's 5s inline cleanup budget so a faulted
+        // worker's finalizer completes before component Scope shutdown ACKs it.
         if let Err(error) = proxy
             .resolver
-            .shutdown_queries(tokio::time::Instant::now() + Duration::from_secs(5))
+            .shutdown_queries(tokio::time::Instant::now() + Duration::from_secs(7))
             .await
         {
             cleanup_errors.push(format!("DNS query worker shutdown failed: {error}"));

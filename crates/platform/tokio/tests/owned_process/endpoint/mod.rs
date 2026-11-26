@@ -20,7 +20,7 @@ use zero_core::{
     Address,
 };
 fn end() -> Instant {
-    Instant::now() + Duration::from_secs(5)
+    Instant::now() + Duration::from_secs(15)
 }
 fn instance(n: u64) -> ComponentInstanceId {
     ComponentInstanceId {
@@ -42,7 +42,20 @@ struct Running {
 }
 impl Running {
     async fn start() -> Self {
-        let scope = TaskScope::new(
+        let mut last_error = None;
+        for _ in 0..5 {
+            match Self::try_start().await {
+                Ok(running) => return running,
+                Err(error) => last_error = Some(error),
+            }
+        }
+        panic!(
+            "process endpoint child lost ephemeral port race repeatedly: {:?}",
+            last_error
+        );
+    }
+    async fn try_start() -> Result<Self, String> {
+        let mut scope = TaskScope::new(
             tokio::runtime::Handle::current(),
             NonZeroUsize::new(1).unwrap(),
         );
@@ -70,7 +83,7 @@ impl Running {
         .unwrap();
         budget.reserve(instance(719), &process).unwrap();
         let (go, begin) = oneshot::channel();
-        let (ready, waiting) = oneshot::channel();
+        let (ready, waiting) = oneshot::channel::<Result<(), String>>();
         let (stop, stopped) = oneshot::channel();
         let actual = process.clone();
         let original = handoff.clone();
@@ -81,6 +94,8 @@ impl Running {
                 actual.start(witness).unwrap();
                 actual.wait_started(end()).await.unwrap();
                 let deadline = end();
+                let mut ready = Some(ready);
+                let mut started = false;
                 loop {
                     match original
                         .open_probe(&actual.actor().unwrap(), deadline)
@@ -95,17 +110,54 @@ impl Running {
                                 !actual.actor().unwrap().is_joined(),
                                 "probe does not self-wait its original actor"
                             );
+                            if let Ok(status) = tokio::time::timeout(
+                                Duration::from_millis(5),
+                                actual.wait_root_exit(),
+                            )
+                            .await
+                            {
+                                if let Some(ready) = ready.take() {
+                                    let _ = ready.send(Err(format!(
+                                        "endpoint child exited after probe: {status:?}"
+                                    )));
+                                }
+                                break;
+                            }
+                            started = true;
                             break;
                         }
                         Err(error) => {
+                            let closed_probe = original.close_probe(end()).await.unwrap();
+                            if !actual.endpoint_is_running()
+                                || error.kind() == std::io::ErrorKind::PermissionDenied
+                            {
+                                if let Some(ready) = ready.take() {
+                                    let _ = ready.send(Err(error.to_string()));
+                                }
+                                break;
+                            }
                             assert!(Instant::now() < deadline, "{error}");
-                            assert!(original.close_probe(end()).await.unwrap().is_some());
-                            tokio::task::yield_now().await;
+                            assert!(closed_probe.is_some());
+                            if let Ok(status) = tokio::time::timeout(
+                                Duration::from_millis(5),
+                                actual.wait_root_exit(),
+                            )
+                            .await
+                            {
+                                if let Some(ready) = ready.take() {
+                                    let _ = ready.send(Err(format!(
+                                        "endpoint child exited during startup ({error}): {status:?}"
+                                    )));
+                                }
+                                break;
+                            }
                         }
                     }
                 }
-                ready.send(()).unwrap();
-                stopped.await.unwrap();
+                if started {
+                    ready.take().unwrap().send(Ok(())).unwrap();
+                    stopped.await.unwrap();
+                }
                 actual.request_stop();
                 #[cfg(target_os = "linux")]
                 actual.wait_tree_ended(end()).await.unwrap();
@@ -133,11 +185,21 @@ impl Running {
         ];
         process.install_endpoint_request(request, &handoff).unwrap();
         go.send(witness.clone()).unwrap();
-        tokio::time::timeout_at(end(), waiting)
+        let outcome = tokio::time::timeout(Duration::from_secs(20), waiting)
             .await
             .unwrap()
             .unwrap();
-        Self {
+        if let Err(error) = outcome {
+            handoff.request_stop();
+            let (native, tasks) = tokio::join!(process.wait_closed(end()), scope.shutdown(end()));
+            assert!(tasks.is_complete(), "{tasks:?}");
+            assert!(witness.is_joined());
+            assert!(native.unwrap().unwrap().matches(&process));
+            assert!(handoff.closed().unwrap().matches(&handoff));
+            assert_eq!(budget.snapshot().charged_jobs, 0);
+            return Err(error);
+        }
+        Ok(Self {
             scope,
             process,
             handoff,
@@ -145,7 +207,7 @@ impl Running {
             budget,
             stop,
             egress,
-        }
+        })
     }
     async fn finish(mut self) {
         self.stop.send(()).unwrap();

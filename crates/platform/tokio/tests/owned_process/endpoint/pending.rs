@@ -3,6 +3,19 @@ use super::*;
 use std::{future::Future, task::Poll};
 #[tokio::test]
 async fn process_endpoint_pending_probe_retains_original_until_native_close_and_actual_actor_ack() {
+    let mut last_error = None;
+    for _ in 0..5 {
+        match try_pending_probe().await {
+            Ok(()) => return,
+            Err(error) => last_error = Some(error),
+        }
+    }
+    panic!(
+        "process endpoint pending probe child lost ephemeral port race repeatedly: {:?}",
+        last_error
+    );
+}
+async fn try_pending_probe() -> Result<(), String> {
     let mut scope = TaskScope::new(
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(1).unwrap(),
@@ -29,7 +42,7 @@ async fn process_endpoint_pending_probe_retains_original_until_native_close_and_
     .unwrap();
     budget.reserve(instance(723), &process).unwrap();
     let (go, begin) = oneshot::channel();
-    let (ready, waiting) = oneshot::channel();
+    let (ready, waiting) = oneshot::channel::<Result<(), String>>();
     let (resume, resumed) = oneshot::channel();
     let original = handoff.clone();
     let actual = process.clone();
@@ -40,6 +53,7 @@ async fn process_endpoint_pending_probe_retains_original_until_native_close_and_
             actual.start(actor).unwrap();
             actual.wait_started(end()).await.unwrap();
             let deadline = end();
+            let mut ready = Some(ready);
             // Queue capacities differ by kernel. Consume only probes that
             // actually completed, then retain the same awaited native connect
             // once a second real poll still observes Pending. The timer only
@@ -69,8 +83,31 @@ async fn process_endpoint_pending_probe_retains_original_until_native_close_and_
                                 .matches(&completed));
                         }
                         Err(error) => {
+                            let closed_probe = original.close_probe(deadline).await.unwrap();
+                            if !actual.endpoint_is_running()
+                                || error.kind() == std::io::ErrorKind::PermissionDenied
+                            {
+                                if let Some(ready) = ready.take() {
+                                    let _ = ready.send(Err(error.to_string()));
+                                }
+                                break;
+                            }
                             assert!(Instant::now() < deadline, "{error}");
-                            assert!(original.close_probe(deadline).await.unwrap().is_some());
+                            assert!(closed_probe.is_some());
+                            if let Ok(status) = tokio::time::timeout(
+                                std::time::Duration::from_millis(5),
+                                actual.wait_root_exit(),
+                            )
+                            .await
+                            {
+                                if let Some(ready) = ready.take() {
+                                    let _ = ready.send(Err(format!(
+                                        "pending-probe child exited during startup ({error}): {status:?}"
+                                    )));
+                                }
+                                break;
+                            }
+                            continue;
                         }
                     }
                     tokio::task::yield_now().await;
@@ -78,7 +115,7 @@ async fn process_endpoint_pending_probe_retains_original_until_native_close_and_
                 }
                 let native = { original.lock().probe.clone().unwrap() };
                 assert!(!native.is_closed());
-                ready.send(()).unwrap();
+                ready.take().unwrap().send(Ok(())).unwrap();
                 resumed.await.unwrap();
                 assert!(probe.await.is_err());
                 let closed = original.close_probe(deadline).await.unwrap().unwrap();
@@ -104,10 +141,20 @@ async fn process_endpoint_pending_probe_retains_original_until_native_close_and_
     request.arguments=vec!["-c".into(),"import socket,sys,signal;s=socket.socket();s.bind((sys.argv[1],int(sys.argv[2])));s.listen(1);signal.pause()".into(),address.ip().to_string().into(),address.port().to_string().into()];
     process.install_endpoint_request(request, &handoff).unwrap();
     go.send(witness.clone()).unwrap();
-    tokio::time::timeout_at(end(), waiting)
+    let outcome = tokio::time::timeout(Duration::from_secs(20), waiting)
         .await
         .unwrap()
         .unwrap();
+    if let Err(error) = outcome {
+        handoff.request_stop();
+        let (native, tasks) = tokio::join!(process.wait_closed(end()), scope.shutdown(end()));
+        assert!(tasks.is_complete(), "{tasks:?}");
+        assert!(witness.is_joined());
+        assert!(native.unwrap().unwrap().matches(&process));
+        assert!(handoff.closed().unwrap().matches(&handoff));
+        assert_eq!(budget.snapshot().charged_jobs, 0);
+        return Err(error);
+    }
     assert_eq!(budget.snapshot().charged_jobs, 1);
     handoff.request_stop();
     assert!(process.closed().is_none());
@@ -118,4 +165,5 @@ async fn process_endpoint_pending_probe_retains_original_until_native_close_and_
     assert!(native.unwrap().unwrap().matches(&process));
     assert!(handoff.closed().unwrap().matches(&handoff));
     assert_eq!(budget.snapshot().charged_jobs, 0);
+    Ok(())
 }

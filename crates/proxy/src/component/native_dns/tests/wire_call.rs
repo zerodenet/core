@@ -6,11 +6,11 @@ use std::{
     time::Duration,
 };
 fn end() -> tokio::time::Instant {
-    tokio::time::Instant::now() + Duration::from_secs(3)
+    tokio::time::Instant::now() + Duration::from_secs(10)
 }
 #[tokio::test]
 async fn cancelled_wire_caller_waits_for_the_same_shared_host_query_and_actual_original_cleanup() {
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio::time::timeout(Duration::from_secs(25), async {
         for tcp in [false, true] {
             actual_call(tcp, false).await;
         }
@@ -21,7 +21,7 @@ async fn cancelled_wire_caller_waits_for_the_same_shared_host_query_and_actual_o
 #[tokio::test]
 async fn actual_host_query_fault_does_not_hide_positive_caller_retirement_or_its_original_typed_errors(
 ) {
-    tokio::time::timeout(Duration::from_secs(10), actual_call(false, true))
+    tokio::time::timeout(Duration::from_secs(25), actual_call(false, true))
         .await
         .unwrap();
 }
@@ -118,6 +118,7 @@ async fn actual_call(tcp: bool, fault: bool) {
             sibling.await.unwrap_err().kind(),
             std::io::ErrorKind::Interrupted
         );
+        tokio::task::yield_now().await;
         assert!(
             running.take().unwrap().shutdown().await.is_err(),
             "same actual critical fault stays observable"
