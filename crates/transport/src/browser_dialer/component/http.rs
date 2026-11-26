@@ -17,18 +17,21 @@ use zero_platform_tokio::{
         ProtocolOriginalChildren,
     },
 };
+
 pub(super) struct Prepared {
     input: CarrierDriver<(CarrierIo, CarrierUserView)>,
-    stream: zero_transport::split_http::XhttpStream,
-    driver: zero_transport::split_http::BrowserXhttpDriver,
+    stream: crate::split_http::XhttpStream,
+    driver: crate::split_http::BrowserXhttpDriver,
     preparation: CarrierPreparation,
     reservation: BeforeDriver,
 }
+
 struct BeforeDriver {
     entry: PacketMetadataArc<entry::Entry>,
     active: bool,
     attempted: bool,
 }
+
 impl Drop for BeforeDriver {
     fn drop(&mut self) {
         if self.active {
@@ -41,6 +44,7 @@ impl Drop for BeforeDriver {
         }
     }
 }
+
 impl Shared {
     pub(super) async fn acquire_http(
         shared: &PacketMetadataArc<Self>,
@@ -50,16 +54,17 @@ impl Shared {
             return Err(error(Stage::Prepare, Reason::Cancelled));
         }
         if !context.upstream.binding().prefix.is_empty()
-            || context.upstream.binding().dial != shared.options.protocol.dial
+            || context.upstream.binding().dial != shared.options.dial
         {
             return Err(error(Stage::Prepare, Reason::InvalidConfig));
         }
         let position = table::Table::reserve(&shared.entries)?;
-        let (profile, server, port, secure) = shared
-            .options
-            .plan
-            .browser_http()
-            .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
+        let CarrierProfile::SplitHttp(profile) = &shared.options.carrier else {
+            return Err(error(Stage::Prepare, Reason::InvalidConfig));
+        };
+        let server = shared.options.server.as_str();
+        let port = shared.options.endpoint.port;
+        let secure = shared.options.secure;
         let authority_credit = shared
             .buffers
             .try_reserve(
@@ -79,7 +84,7 @@ impl Shared {
         if !(secure && port == 443 || !secure && port == 80) {
             write!(&mut authority, ":{port}").unwrap();
         }
-        let prepared = zero_transport::split_http::PreparedBrowserXhttp::prepare(
+        let prepared = crate::split_http::PreparedBrowserXhttp::prepare(
             shared.options.provider.dialer(shared.dependency)?,
             profile,
             if secure { "https" } else { "http" },
@@ -100,13 +105,11 @@ impl Shared {
             .map_err(capacity)?;
         let logical_memory = shared
             .memory
-            .reserve(PacketMetadataLayout::boxed::<super::roles::logical::Logical>())
+            .reserve(PacketMetadataLayout::boxed::<control::Logical>())
             .map_err(capacity)?;
         let io_memory = shared
             .memory
-            .reserve(PacketMetadataLayout::boxed::<
-                zero_transport::split_http::XhttpStream,
-            >())
+            .reserve(PacketMetadataLayout::boxed::<crate::split_http::XhttpStream>())
             .map_err(capacity)?;
         let (ready_output, mut result, result_weak) =
             delivery::prepare::<entry::Ready>(&shared.memory)?;
@@ -154,7 +157,7 @@ impl Shared {
             let token = grant.protocol_stream_original(
                 &context.upstream,
                 observer.clone(),
-                &shared.options.protocol.endpoint,
+                &shared.options.endpoint,
                 &call,
                 &shared.tasks,
                 &retirement,
@@ -168,29 +171,79 @@ impl Shared {
         let worker_binding = binding.clone();
         let initializer_cancel = context.cancel.clone();
         before.attempted = true;
-        let spawned=adoption.spawn_auxiliary(&shared.tasks,async move {
-            let caller=input.receive().await?;
-            let work=async {
-                let upstream=pending::prepare(&worker_shared,&worker_entry,caller,&worker_binding)?;
-                let ready=prepared.open_get(&upstream,&call).await?;
-                let (loan,stream,driver)=ready.into_parts();
-                let source=loan.owner.original().accepted().cloned().ok_or_else(||error(Stage::Prepare,Reason::StalePlan))?;
+        let spawned = adoption.spawn_auxiliary(&shared.tasks, async move {
+            let caller = input.receive().await?;
+            let work = async {
+                let upstream =
+                    pending::prepare(&worker_shared, &worker_entry, caller, &worker_binding)?;
+                let ready = prepared.open_get(&upstream, &call).await?;
+                let (loan, stream, driver) = ready.into_parts();
+                let source = loan
+                    .owner
+                    .original()
+                    .accepted()
+                    .cloned()
+                    .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
                 assert!(worker_entry.source.set(source.clone()).is_ok());
-                let issuer=worker_shared.resources.accepted_dependency_stream_loan_issuer(worker_shared.dependency,&source,&worker_shared.options.protocol.endpoint,&worker_binding,&grant)?;
-                let io=grant.adopt_dependency_stream_loan(&worker_binding,worker_shared.options.protocol.endpoint.clone(),&call,loan,issuer)?;
-                let input=io.into_driver().try_map(|io|Ok::<_,std::convert::Infallible>((io,view))).unwrap();
-                Ok::<_,ChannelError>(Prepared{input,stream,driver,preparation,reservation:BeforeDriver{entry:worker_entry.clone(),active:true,attempted:false}})
+                let issuer = worker_shared
+                    .resources
+                    .accepted_dependency_stream_loan_issuer(
+                        worker_shared.dependency,
+                        &source,
+                        &worker_shared.options.endpoint,
+                        &worker_binding,
+                        &grant,
+                    )?;
+                let io = grant.adopt_dependency_stream_loan(
+                    &worker_binding,
+                    worker_shared.options.endpoint.clone(),
+                    &call,
+                    loan,
+                    issuer,
+                )?;
+                let input = io
+                    .into_driver()
+                    .try_map(|io| Ok::<_, std::convert::Infallible>((io, view)))
+                    .unwrap();
+                Ok::<_, ChannelError>(Prepared {
+                    input,
+                    stream,
+                    driver,
+                    preparation,
+                    reservation: BeforeDriver {
+                        entry: worker_entry.clone(),
+                        active: true,
+                        attempted: false,
+                    },
+                })
             };
-            let result=tokio::select!{biased;_ = initializer_cancel.cancelled()=>None,_=worker_entry.stop.cancelled()=>None,result=work=>Some(result)};
-            let ready=match result {
-                Some(Ok(prepared))=>Some(entry::Ready::Http(prepared)),
-                Some(Err(source))=>{worker_entry.skip_driver();Some(entry::Ready::Failed(worker_entry.diagnostics.operation(source)))},
-                None=>{worker_entry.skip_driver();None},
+            let result = tokio::select! {
+                biased;
+                _ = initializer_cancel.cancelled() => None,
+                _ = worker_entry.stop.cancelled() => None,
+                result = work => Some(result),
             };
-            if let Some(value)=ready {
-                if let Err(returned)=ready_output.send(value) {
-                    drop(returned);worker_entry.skip_driver();worker_entry.abandon_delivery();
-                    if let Some(original)=worker_entry.retirement.get(){original.request_retirement();}
+            let ready = match result {
+                Some(Ok(prepared)) => Some(entry::Ready::Http(prepared)),
+                Some(Err(source)) => {
+                    worker_entry.skip_driver();
+                    Some(entry::Ready::Failed(
+                        worker_entry.diagnostics.operation(source),
+                    ))
+                }
+                None => {
+                    worker_entry.skip_driver();
+                    None
+                }
+            };
+            if let Some(value) = ready {
+                if let Err(returned) = ready_output.send(value) {
+                    drop(returned);
+                    worker_entry.skip_driver();
+                    worker_entry.abandon_delivery();
+                    if let Some(original) = worker_entry.retirement.get() {
+                        original.request_retirement();
+                    }
                 }
             }
             Ok(())
@@ -242,11 +295,19 @@ impl Shared {
                 }
             }
         };
-        let loan = tokio::select! {biased;_=context.cancel.cancelled()=>return Err(error(Stage::Prepare,Reason::Cancelled)),_=shared.cancel.cancelled()=>return Err(error(Stage::Prepare,Reason::Revoked)),_=original.stop.cancelled()=>return Err(error(Stage::Prepare,Reason::Revoked)),result=with_deadline(context.deadline,work)=>result.map_err(|source|error(Stage::Prepare,Reason::Timeout).with_source(source))??};
+        let loan = tokio::select! {
+            biased;
+            _ = context.cancel.cancelled() => return Err(error(Stage::Prepare, Reason::Cancelled)),
+            _ = shared.cancel.cancelled() => return Err(error(Stage::Prepare, Reason::Revoked)),
+            _ = original.stop.cancelled() => return Err(error(Stage::Prepare, Reason::Revoked)),
+            result = with_deadline(context.deadline, work) => result
+                .map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))??,
+        };
         drop(pending_guard.0.take());
         Ok(loan)
     }
 }
+
 fn start_driver(
     shared: &PacketMetadataArc<Shared>,
     entry: &PacketMetadataArc<entry::Entry>,
@@ -307,11 +368,9 @@ fn start_driver(
     guard.active = false;
     preparation.publish_driver(&caller)?;
     let original = adoption.origin(&caller)?;
-    let control = BoxChannelControl::from_prepaid(
-        super::roles::logical::Logical::Driver(adoption),
-        logical_memory,
-    )
-    .map_err(|(source, _, _)| capacity(source))?;
+    let control =
+        BoxChannelControl::from_prepaid(control::Logical::Driver(adoption), logical_memory)
+            .map_err(|(source, _, _)| capacity(source))?;
     let loan = StreamLoan::from_prepaid_io(stream, control, original, io_memory)
         .map_err(|(source, _, _, _, _)| capacity(source))?;
     // Driver's original witness was stored in both Slot and Entry before it can

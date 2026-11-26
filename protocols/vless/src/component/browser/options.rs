@@ -1,28 +1,50 @@
-//! One accepted value and its actual shared Source dependency.
+//! One accepted value and its actual shared Browser Source dependency.
 use super::*;
 mod carrier;
+use zero_transport::browser_dialer::component::{self as shared_browser, CarrierProfile};
+
 pub struct Prepared {
     pub provider: Arc<crate::transport::BrowserProviderOptions>,
-    options: Options,
+    protocol: crate::component::Options,
+    plan: crate::transport::OwnedVlessOutboundTransportPlan,
+    carrier_profile: CarrierProfile,
+    secure: bool,
+    origins: std::num::NonZeroUsize,
+    identity: Vec<u8>,
 }
+
 pub struct Options {
     pub(super) protocol: crate::component::Options,
     pub(super) plan: crate::transport::OwnedVlessOutboundTransportPlan,
-    pub(super) provider: Arc<crate::transport::BrowserProviderOptions>,
-    pub(super) dependency: Option<zero_core::component::ComponentId>,
-    pub(super) origins: std::num::NonZeroUsize,
+    pub(super) browser: Arc<shared_browser::Options>,
     pub(super) identity: Arc<[u8]>,
     pub(super) carrier: Option<crate::component::quic::TransportCarrier>,
 }
+
 impl Prepared {
     pub fn bind_provider(mut self, dependency: zero_core::component::ComponentId) -> Options {
-        self.options.dependency = Some(dependency);
-        let mut identity = self.options.identity.to_vec();
-        identity.extend_from_slice(&dependency.0.to_le_bytes());
-        self.options.identity = identity.into();
-        self.options
+        self.identity.extend_from_slice(&dependency.0.to_le_bytes());
+        let identity: Arc<[u8]> = self.identity.into();
+        let browser = Arc::new(shared_browser::Options {
+            endpoint: self.protocol.endpoint.clone(),
+            dial: self.protocol.dial.clone(),
+            server: self.protocol.server.clone(),
+            secure: self.secure,
+            carrier: self.carrier_profile,
+            provider: self.provider,
+            dependency: Some(dependency),
+            origins: self.origins,
+        });
+        Options {
+            protocol: self.protocol,
+            plan: self.plan,
+            browser,
+            identity,
+            carrier: None,
+        }
     }
 }
+
 impl Options {
     pub fn from_accepted_leaf(
         leaf: &crate::transport::VlessOutboundLeaf,
@@ -37,12 +59,27 @@ impl Options {
             .get()
             .checked_mul(2)
             .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        let (carrier_profile, server, secure) =
+            if let Some((ws, server, _, secure)) = parts.plan.browser_websocket() {
+                (
+                    CarrierProfile::WebSocket(ws.clone()),
+                    server.to_owned(),
+                    secure,
+                )
+            } else if let Some((http, server, _, secure)) = parts.plan.browser_http() {
+                (
+                    CarrierProfile::SplitHttp(Box::new(http.clone())),
+                    server.to_owned(),
+                    secure,
+                )
+            } else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Browser Dialer has no supported carrier",
+                )
+                .into());
+            };
         let (uuid, flow, testseed) = parts.protocol;
-        let server = match &parts.endpoint.address {
-            zero_core::Address::Domain(name) => name.clone(),
-            zero_core::Address::Ipv4(address) => std::net::Ipv4Addr::from(*address).to_string(),
-            zero_core::Address::Ipv6(address) => std::net::Ipv6Addr::from(*address).to_string(),
-        };
         let mut identity = parts.identity.to_vec();
         identity.extend_from_slice(b"vless.actual.browser.source.v1");
         identity.extend_from_slice(&origins.get().to_le_bytes());
@@ -77,16 +114,13 @@ impl Options {
             identity: identity.clone().into(),
         };
         Ok(Some(Prepared {
-            provider: parts.provider.clone(),
-            options: Options {
-                protocol,
-                plan: parts.plan,
-                provider: parts.provider,
-                dependency: None,
-                origins,
-                identity: identity.into(),
-                carrier: None,
-            },
+            provider: parts.provider,
+            protocol,
+            plan: parts.plan,
+            carrier_profile,
+            secure,
+            origins,
+            identity,
         }))
     }
     pub fn endpoint(&self) -> &zero_core::request::Destination {

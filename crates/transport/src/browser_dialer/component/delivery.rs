@@ -148,3 +148,7 @@ impl<T: Send + 'static> Drop for Receiver<T> {
         self.owner.discard::<T>();
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/browser_dialer/delivery.rs"]
+mod tests;

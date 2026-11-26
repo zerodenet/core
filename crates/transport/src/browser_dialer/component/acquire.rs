@@ -218,6 +218,8 @@ impl Shared {
                 Ok(loan)
             }
             entry::Ready::Failed(source) => Err(ChannelError::retained(source)),
+            #[cfg(feature = "split_http")]
+            entry::Ready::Http(_) => Err(error(Stage::Prepare, Reason::Internal)),
         }
     }
 }
@@ -232,7 +234,12 @@ async fn initialize_ws(
 ) -> Result<StreamLoan, ChannelError> {
     let (grant, view) = input;
     let upstream = pending::prepare(shared, entry, caller.clone(), binding)?;
-    let profile = &shared.options.ws;
+    #[allow(clippy::infallible_destructuring_match)]
+    let profile = match &shared.options.carrier {
+        CarrierProfile::WebSocket(profile) => profile,
+        #[cfg(feature = "split_http")]
+        CarrierProfile::SplitHttp(_) => return Err(error(Stage::Prepare, Reason::InvalidConfig)),
+    };
     let server = shared.options.server.as_str();
     let port = shared.options.endpoint.port;
     let secure = shared.options.secure;

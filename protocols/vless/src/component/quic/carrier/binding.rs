@@ -42,21 +42,21 @@ impl Owner {
         match self {
             Self::Packet(g) => g.instance,
             Self::Xhttp(g) => g.instance,
-            Self::Browser(g) => g.instance,
+            Self::Browser(g) => g.handle.instance(),
         }
     }
     pub fn closed_marker(&self) -> PacketMetadataArc<std::sync::atomic::AtomicBool> {
         match self {
             Self::Packet(g) => g.closed.clone(),
             Self::Xhttp(g) => g.closed.clone(),
-            Self::Browser(g) => g.closed.clone(),
+            Self::Browser(g) => g.handle.closed_marker().clone(),
         }
     }
     pub fn closed(&self) -> bool {
         let marker = match self {
             Self::Packet(g) => &g.closed,
             Self::Xhttp(g) => &g.closed,
-            Self::Browser(g) => &g.closed,
+            Self::Browser(g) => g.handle.closed_marker(),
         };
         marker.load(std::sync::atomic::Ordering::Acquire)
     }
@@ -64,14 +64,14 @@ impl Owner {
         match self {
             Self::Packet(g) => g.cancel.is_cancelled(),
             Self::Xhttp(g) => g.cancel.is_cancelled(),
-            Self::Browser(g) => g.cancel.is_cancelled(),
+            Self::Browser(g) => g.handle.is_cancelled(),
         }
     }
     pub fn upstream(&self) -> &zero_platform_tokio::contract::network::UpstreamTransport {
         match self {
             Self::Packet(g) => &g.upstream,
             Self::Xhttp(g) => g.carrier_upstream(),
-            Self::Browser(g) => &g.upstream,
+            Self::Browser(g) => g.handle.upstream(),
         }
     }
     pub fn memory(
@@ -85,7 +85,8 @@ impl Owner {
                 .reserve(layout)
                 .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source)),
             Self::Browser(g) => g
-                .memory
+                .handle
+                .memory()
                 .reserve(layout)
                 .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source)),
         }

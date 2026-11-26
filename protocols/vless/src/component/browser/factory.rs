@@ -1,44 +1,43 @@
-//! Actual dependency, task Scope and original owner registered before first assignment.
+//! Thin VLESS component wrapper around `zero_transport::browser_dialer::component::Owner`.
 use super::*;
 use tokio::time::Instant;
-use zero_core::component::ComponentInstanceId;
-use zero_platform_tokio::{
-    contract::{
-        admission::{SessionAdmission, SessionOwner},
-        lifecycle::{erase_lifecycle, BuildError, ResourceLifecycle},
-        scope::TaskRegistrar,
-    },
-    controlled_carrier::{CarrierBufferBudget, CarrierGrants, CarrierOwner},
+use zero_platform_tokio::contract::admission::{SessionAdmission, SessionOwner};
+use zero_transport::{
+    browser_dialer::component::{Handle, Owner as BrowserOwner},
+    runner::LifecycleChain,
 };
+
 pub struct Factory;
+
 pub(in crate::component) struct Shared {
     pub options: Arc<Options>,
-    pub instance: ComponentInstanceId,
-    pub closed: PacketMetadataArc<std::sync::atomic::AtomicBool>,
-    pub dependency: ComponentInstanceId,
-    pub resources: Arc<dyn ResourceAccess>,
-    pub tasks: TaskRegistrar,
-    pub grants: CarrierGrants,
-    pub upstream: zero_platform_tokio::contract::network::UpstreamTransport,
-    pub buffers: CarrierBufferBudget,
-    pub memory: PacketDriverMetadataView,
-    pub(super) entries: PacketMetadataArc<Mutex<table::Table>>,
-    pub cancel: CancellationToken,
+    pub handle: Handle,
 }
+
 pub(super) struct Outbound {
     pub shared: PacketMetadataArc<Shared>,
     pub admission: Arc<SessionAdmission>,
 }
-struct Owner {
+
+struct InstallCarrier {
+    carrier: crate::component::quic::TransportCarrier,
     shared: PacketMetadataArc<Shared>,
-    carrier: CarrierOwner,
-    session: SessionOwner,
-    registered: bool,
 }
+
+impl ResourceLifecycle for InstallCarrier {
+    async fn start(&mut self, _deadline: Instant) -> Result<(), BuildError> {
+        self.carrier.install_browser(&self.shared)
+    }
+    fn revoke(&self, _reason: CloseReason) {}
+    async fn shutdown(&mut self, _deadline: Instant) -> Result<CloseReport, BuildError> {
+        Ok(CloseReport::default())
+    }
+}
+
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
-        ComponentSpec {
+        let mut spec = ComponentSpec {
             owner: ResourceOwner::Component,
             roles: if options.carrier.is_some() {
                 vec![]
@@ -50,71 +49,42 @@ impl ComponentFactory for Factory {
                     )
                     .collect()
             },
-            dependencies: options.dependency.into_iter().collect(),
+            dependencies: vec![],
             static_identity: options.identity.clone(),
-            resources: vec![ResourceDeclaration::ControlledCarrierPool {
-                endpoint: options.protocol.endpoint.clone(),
-                dial: options.protocol.dial.clone(),
-                max_sockets: options.origins,
-                datagram: false,
-            }],
-            task_limit: Some(n(options
-                .origins
-                .get()
-                .checked_mul(2)
-                .expect("validated Browser task peak"))),
-        }
+            resources: vec![],
+            task_limit: None,
+        };
+        options.browser.declare(&mut spec);
+        spec
     }
     fn build(
         &self,
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        let dependency = options
-            .dependency
-            .and_then(|id| context.dependency(id))
-            .filter(|_| context.dependencies.len() == 1)
-            .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
-        let buffers = context
-            .resources
-            .carrier_buffer_budget()
-            .ok_or_else(|| error(Stage::Prepare, Reason::Unsupported))?;
-        let memory = context.resources.packet_driver_metadata()?;
-        let upstream = context
-            .background_carrier
-            .clone()
-            .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
-        let entries = table::Table::prepare(&memory, options.origins.get())?;
-        let header = memory
+        let (browser_owner, handle) = BrowserOwner::build(options.browser.clone(), &context)?;
+        let header = handle
+            .memory()
             .reserve(PacketMetadataArc::<Shared>::layout().map_err(capacity)?)
             .map_err(capacity)?;
-        let carrier = CarrierOwner::new(context.instance(), options.origins, &context.cancel);
         let (session, admission) = SessionOwner::new(context.component, &context.cancel);
-        let shared = PacketMetadataArc::from_prepaid(
-            Shared {
-                instance: context.instance(),
-                closed: crate::component::quic::closed_marker(&memory)?,
-                options,
-                dependency,
-                upstream,
-                resources: context.resources,
-                tasks: context.tasks,
-                grants: carrier.grants(),
-                buffers,
-                memory,
-                entries,
-                cancel: context.cancel.child_token(),
-            },
-            header,
-        )
-        .map_err(|(source, _, _)| capacity(source))?;
-        Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(Owner {
-                shared: shared.clone(),
+        let shared = PacketMetadataArc::from_prepaid(Shared { options, handle }, header)
+            .map_err(|(source, _, _)| capacity(source))?;
+        let install = shared
+            .options
+            .carrier
+            .clone()
+            .map(|carrier| InstallCarrier {
                 carrier,
-                session,
-                registered: false,
-            }),
+                shared: shared.clone(),
+            });
+        let lifecycle = LifecycleChain::new()
+            .push_typed(browser_owner)
+            .push_typed(session)
+            .push_typed_opt(install)
+            .into_boxed();
+        Ok(ComponentInstance {
+            lifecycle,
             roles: if shared.options.carrier.is_some() {
                 ComponentRoles::default()
             } else {
@@ -137,66 +107,5 @@ impl ComponentFactory for Factory {
                 }
             },
         })
-    }
-}
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, end: Instant) -> Result<(), BuildError> {
-        if !self.registered {
-            self.shared.resources.register_controlled_carrier(
-                0,
-                self.carrier.registration(),
-                &self.shared.tasks,
-            )?;
-            self.registered = true;
-        }
-        // Dependency start order already established the one real Source.
-        self.shared
-            .options
-            .provider
-            .dialer(self.shared.dependency)?;
-        self.carrier.start(end).await?;
-        self.session.start(end).await?;
-        if let Some(carrier) = &self.shared.options.carrier {
-            carrier.install_browser(&self.shared)?;
-        }
-        Ok(())
-    }
-    fn revoke(&self, reason: CloseReason) {
-        self.session.revoke(reason);
-        self.shared.cancel.cancel();
-        table::Table::request_retirement(&self.shared.entries);
-    }
-    async fn shutdown(&mut self, end: Instant) -> Result<CloseReport, BuildError> {
-        self.revoke(CloseReason::Shutdown);
-        let work = async {
-            let mut after = 0;
-            while let Some((ordinal, entry)) = table::Table::next(&self.shared.entries, after) {
-                after = ordinal;
-                if let Some(original) = entry.retirement.get() {
-                    original.wait_protocol_original().await?;
-                }
-            }
-            Ok::<_, ChannelError>(())
-        };
-        match tokio::time::timeout_at(end, work).await {
-            Ok(result) => result?,
-            Err(_) => {
-                return Ok(CloseReport {
-                    unfinished: vec![Unfinished::Resource(
-                        "same Browser setup/driver/Source originals remain Root-held".into(),
-                    )],
-                    ..Default::default()
-                })
-            }
-        }
-        let mut report = self.carrier.shutdown(end).await?;
-        report.append(self.session.shutdown(end).await?);
-        table::Table::reap(&self.shared.entries);
-        if report.is_complete() {
-            self.shared
-                .closed
-                .store(true, std::sync::atomic::Ordering::Release);
-        }
-        Ok(report)
     }
 }

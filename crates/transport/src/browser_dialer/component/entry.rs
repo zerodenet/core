@@ -15,6 +15,8 @@ use zero_platform_tokio::{
 )]
 pub(super) enum Ready {
     Stream(zero_platform_tokio::controlled_carrier::loan::StreamLoan),
+    #[cfg(feature = "split_http")]
+    Http(super::http::Prepared),
     Failed(zero_platform_tokio::contract::RetainedError),
 }
 pub(super) struct Entry {
@@ -92,6 +94,17 @@ impl Entry {
             .replace(actor);
         assert!(replaced.is_none(), "one actual setup registration outcome");
         drop(replaced);
+        self.changed.notify_waiters();
+    }
+    #[cfg(feature = "split_http")]
+    pub fn set_driver(&self, actual: TaskJoinWitness) {
+        let old = self
+            .driver
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace(Some(actual));
+        assert!(old.is_none(), "one exact registered physical driver");
+        drop(old);
         self.changed.notify_waiters();
     }
     pub fn skip_driver(&self) {

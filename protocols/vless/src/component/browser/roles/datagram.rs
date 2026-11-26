@@ -1,13 +1,15 @@
-//! Fixed-target VLESS UDP framing over the same actual pooled gRPC controller.
+//! Fixed-target VLESS UDP framing over the shared Browser controller.
 use crate::component::browser::factory::Outbound;
 use crate::component::datagram::{self, Control, Rx, Tx};
 use tokio::io::AsyncWriteExt;
 use zero_core::request::DatagramTargets;
 use zero_platform_tokio::contract::{
-    context::{with_deadline, ConnectFact, OpenContext},
+    context::{ConnectFact, OpenContext},
     datagram::{DatagramOutbound, DatagramRequest, DatagramSession},
     ChannelError, DeliveryState, Reason, Stage,
 };
+use zero_transport::runner::GuardedCall;
+
 impl DatagramOutbound for Outbound {
     type Tx = Tx;
     type Rx = Rx;
@@ -17,10 +19,9 @@ impl DatagramOutbound for Outbound {
         request: DatagramRequest,
         context: OpenContext,
     ) -> Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError> {
-        let session = self.admission.check(&context)?;
+        let call = GuardedCall::enter(&self.admission, &context, None)?;
         let DatagramTargets::Fixed(target) = &request.targets else {
-            return Err(self.admission.error(
-                session,
+            return Err(call.error(
                 Stage::Prepare,
                 Reason::Unsupported,
                 DeliveryState::NotSubmitted,
@@ -30,8 +31,7 @@ impl DatagramOutbound for Outbound {
             || target.port == 0
             || context.upstream.binding().dial != self.shared.options.protocol.dial
         {
-            return Err(self.admission.error(
-                session,
+            return Err(call.error(
                 Stage::Prepare,
                 Reason::InvalidConfig,
                 DeliveryState::NotSubmitted,
@@ -39,8 +39,8 @@ impl DatagramOutbound for Outbound {
         }
         let mut prepared = datagram::Prepared::new(
             Some(&datagram::Budget::new(
-                self.shared.buffers.clone(),
-                self.shared.memory.clone(),
+                self.shared.handle.buffers().clone(),
+                self.shared.handle.memory().clone(),
             )),
             &context.cancel,
             &self.admission,
@@ -50,31 +50,25 @@ impl DatagramOutbound for Outbound {
         let bytes = prepared
             .request(&target, &self.shared.options.protocol.uuid)
             .map_err(|source| {
-                self.admission
-                    .error(
-                        session,
-                        Stage::Prepare,
-                        Reason::InvalidConfig,
-                        DeliveryState::NotSubmitted,
-                    )
-                    .with_source(source)
+                call.error(
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(source)
             })?;
 
         let (mut io, control, original) = self.acquire_parts(&context).await?;
-        let handshake = async {
+        call.run_io(Stage::Handshake, DeliveryState::Unknown, async {
             io.write_all(&bytes).await?;
             io.flush().await
-        };
-        tokio::select! {biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,handshake)=>result.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::CarrierReady);
-            observer.record(session, ConnectFact::RequestSubmitted);
-            observer.protocol_traffic(session, 0, bytes.len() as u64);
-        }
+        })
+        .await?;
+        let facts = call.facts();
+        facts.record(ConnectFact::CarrierReady);
+        facts.record(ConnectFact::RequestSubmitted);
+        facts.protocol_traffic(0, bytes.len() as u64);
+        let session = call.session();
         drop(bytes);
         // The peer may wait for the first UDP payload before replying. The
         // same Rx validates/accounts its real header and confirms the peer;

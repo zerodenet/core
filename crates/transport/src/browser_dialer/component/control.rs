@@ -6,18 +6,41 @@ use zero_platform_tokio::{
     },
     controlled_carrier::loan::LoanOwner,
 };
-pub(super) struct Logical(pub LoanOwner);
+#[cfg_attr(
+    feature = "split_http",
+    expect(
+        clippy::large_enum_variant,
+        reason = "both variants already use one prepaid BoxChannelControl sized for Logical; a nested LoanOwner box would add an uncharged allocation"
+    )
+)]
+pub(super) enum Logical {
+    Loan(LoanOwner),
+    #[cfg(feature = "split_http")]
+    Driver(zero_platform_tokio::controlled_carrier::CarrierAdoption),
+}
 impl DynChannelControl for Logical {
     fn cancel(&self, reason: CloseReason) {
-        self.0.cancel(reason);
+        match self {
+            Self::Loan(owner) => owner.cancel(reason),
+            #[cfg(feature = "split_http")]
+            Self::Driver(_) => {}
+        }
     }
     fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
-        self.0.try_close()
+        match self {
+            Self::Loan(owner) => owner.try_close(),
+            #[cfg(feature = "split_http")]
+            Self::Driver(actual) => actual.try_retire(),
+        }
     }
     fn wait_closed(
         &mut self,
         end: tokio::time::Instant,
     ) -> BoxFuture<'_, Result<CloseReport, ChannelError>> {
-        Box::pin(self.0.close(end))
+        match self {
+            Self::Loan(owner) => Box::pin(owner.close(end)),
+            #[cfg(feature = "split_http")]
+            Self::Driver(actual) => Box::pin(actual.retire(end)),
+        }
     }
 }

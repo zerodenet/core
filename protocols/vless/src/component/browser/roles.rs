@@ -1,16 +1,50 @@
 use super::factory::Outbound;
 use super::*;
+use std::{
+    io,
+    pin::Pin,
+    task::{Context, Poll},
+};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use zero_platform_tokio::{
     contract::{
         context::OpenContext,
         lifecycle::BoxChannelControl,
         stream::{BoxStream, ConnectRequest, Connected, StreamOutbound},
+        DeliveryState,
     },
     controlled_carrier::{loan::StreamLoan, CarrierOrigin},
 };
+use zero_transport::runner::GuardedCall;
+
 mod datagram;
-pub(super) mod logical;
-mod ordinary;
+
+struct Ordinary(StreamLoan);
+impl AsyncRead for Ordinary {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0.io).poll_read(cx, bytes)
+    }
+}
+impl AsyncWrite for Ordinary {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0.io).poll_write(cx, bytes)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0.io).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0.io).poll_shutdown(cx)
+    }
+}
+
 impl Outbound {
     pub(super) async fn acquire_parts(
         &self,
@@ -41,28 +75,26 @@ impl Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<StreamLoan>, ChannelError> {
-        let session = self.admission.check(&context)?;
+        let call = GuardedCall::enter(&self.admission, &context, None)?;
         let options = &self.shared.options.protocol;
         if request.destination.port == 0 || context.upstream.binding().dial != options.dial {
-            return Err(self.admission.error(
-                session,
+            return Err(call.error(
                 Stage::Prepare,
                 Reason::InvalidConfig,
-                zero_platform_tokio::contract::DeliveryState::NotSubmitted,
+                DeliveryState::NotSubmitted,
             ));
         }
         let bytes = options
             .stream_request(&request, &context)
             .map_err(|source| {
-                self.admission
-                    .error(
-                        session,
-                        Stage::Prepare,
-                        Reason::InvalidConfig,
-                        zero_platform_tokio::contract::DeliveryState::NotSubmitted,
-                    )
-                    .with_source(source)
+                call.error(
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(source)
             })?;
+        let session = call.session();
         let (io, control, original) = self.acquire_parts(&context).await?;
         let connected = crate::component::connect::submit(
             options,
@@ -79,6 +111,7 @@ impl Outbound {
         })
     }
 }
+
 impl StreamOutbound for Outbound {
     type Stream = BoxStream;
     async fn connect(
@@ -88,7 +121,7 @@ impl StreamOutbound for Outbound {
     ) -> Result<Connected<BoxStream>, ChannelError> {
         let connected = self.borrow(request, context).await?;
         Ok(Connected {
-            io: Box::pin(ordinary::Ordinary(connected.io)),
+            io: Box::pin(Ordinary(connected.io)),
             peer_confirmation: connected.peer_confirmation,
         })
     }
@@ -106,22 +139,9 @@ impl super::factory::Shared {
         shared: &PacketMetadataArc<Self>,
         context: &OpenContext,
     ) -> Result<crate::component::preconnect::Opened, ChannelError> {
-        // The concrete logical-controller box is paid before Source task selection.
-        let credit = shared
-            .memory
-            .reserve(PacketMetadataLayout::boxed::<logical::Logical>())
-            .map_err(capacity)?;
-        let loan = if shared.options.plan.browser_http().is_some() {
-            super::factory::Shared::acquire_http(shared, context).await?
-        } else {
-            super::factory::Shared::acquire_ws(shared, context).await?
-        };
-        let original = loan.owner.original().clone();
-        let stream = zero_transport::pooled_driver::ExclusiveIo::new(loan.io);
-        let control = BoxChannelControl::from_prepaid(logical::Logical::Loan(loan.owner), credit)
-            .map_err(|(source, _, _)| capacity(source))?;
+        let (io, control, original) = shared.handle.open_unobserved_parts(context).await?;
         Ok(crate::component::preconnect::Opened {
-            io: zero_platform_tokio::TcpRelayStream::new(stream),
+            io,
             control,
             original,
         })

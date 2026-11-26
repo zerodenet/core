@@ -130,7 +130,9 @@ pub(crate) fn prepare(
         ),
         server: server.clone(),
         secure,
-        ws: zero_transport::profile::OwnedWebSocketProfile::from_profile(ws),
+        carrier: carrier::CarrierProfile::WebSocket(
+            zero_transport::profile::OwnedWebSocketProfile::from_profile(ws),
+        ),
         provider,
         dependency: Some(dependency),
         origins,
