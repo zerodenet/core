@@ -108,6 +108,7 @@ impl OrchestrationState {
                 );
             } else {
                 self.device_retry_at = None;
+                proxy.publish_reconciled_device_generation(self.device_generation);
             }
             return;
         }
@@ -270,6 +271,7 @@ impl OrchestrationState {
                     None,
                 );
                 self.device_generation = generation;
+                proxy.publish_reconciled_device_generation(generation);
                 self.device_retry_at = None;
                 self.device_retry_delay = Duration::from_secs(1);
                 info!(

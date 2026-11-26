@@ -795,6 +795,8 @@ impl OrchestrationState {
         // commit after this real acknowledgement. Resolver retains the token.
         self.pending_dns_reload = None;
         self.services.accept().await;
+        #[cfg(feature = "raw-ip-runtime")]
+        proxy.publish_reconciled_device_generation(self.device_generation);
         proxy.complete_reload(&self.applied_snapshot, Ok(()));
     }
 

@@ -105,8 +105,52 @@ pub(super) async fn start(
             },
         )
         .await
-        .map(|_| zero_api::CommandResponse::accepted())
-        .map_err(map_tun_start_error)
+        .map_err(map_tun_start_error)?;
+    wait_for_outbound_reconciliation(&proxy).await?;
+    Ok(zero_api::CommandResponse::accepted())
+}
+
+#[cfg(feature = "raw-ip-runtime")]
+pub(in crate::runtime::handle::command) async fn wait_for_outbound_reconciliation(
+    proxy: &crate::Proxy,
+) -> Result<(), zero_api::ApiError> {
+    let mut active = proxy.device_reconciliation_activity();
+    if !*active.borrow_and_update() {
+        return Ok(());
+    }
+    let target = proxy.egress_interface.generation();
+    let mut reconciled = proxy.reconciled_device_generations();
+    if *reconciled.borrow_and_update() >= target {
+        return Ok(());
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        tokio::select! {
+            changed = reconciled.changed() => {
+                if changed.is_err() || *reconciled.borrow_and_update() >= target {
+                    return Ok(());
+                }
+            }
+            changed = active.changed() => {
+                if changed.is_err() || !*active.borrow_and_update() {
+                    return Ok(());
+                }
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                return Err(zero_api::ApiError::new(
+                    zero_api::ApiErrorCode::Internal,
+                    format!(
+                        "timed out waiting for outbound devices to reconcile network generation {target}"
+                    ),
+                ));
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "raw-ip-runtime"))]
+async fn wait_for_outbound_reconciliation(_proxy: &crate::Proxy) -> Result<(), zero_api::ApiError> {
+    Ok(())
 }
 
 pub(super) fn map_tun_start_error(error: EngineError) -> zero_api::ApiError {
@@ -127,14 +171,11 @@ pub(super) fn map_tun_start_error(error: EngineError) -> zero_api::ApiError {
 }
 
 pub(super) async fn stop(handle: &ProxyHandle) -> zero_api::ApiResult<zero_api::CommandResponse> {
-    handle
-        .proxy
-        .stop_tun()
-        .await
-        .map(|_| zero_api::CommandResponse::accepted())
-        .map_err(|error| {
-            zero_api::ApiError::new(zero_api::ApiErrorCode::Internal, error.to_string())
-        })
+    handle.proxy.stop_tun().await.map_err(|error| {
+        zero_api::ApiError::new(zero_api::ApiErrorCode::Internal, error.to_string())
+    })?;
+    wait_for_outbound_reconciliation(&handle.proxy).await?;
+    Ok(zero_api::CommandResponse::accepted())
 }
 
 pub(super) async fn recover(
@@ -144,8 +185,9 @@ pub(super) async fn recover(
         .proxy
         .recover_tun()
         .await
-        .map(|_| zero_api::CommandResponse::accepted())
-        .map_err(map_tun_start_error)
+        .map_err(map_tun_start_error)?;
+    wait_for_outbound_reconciliation(&handle.proxy).await?;
+    Ok(zero_api::CommandResponse::accepted())
 }
 
 pub(super) fn execute_tun_start(

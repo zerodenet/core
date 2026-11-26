@@ -93,6 +93,10 @@ pub struct Proxy {
     pub(crate) tun_operation_lock: Arc<tokio::sync::Mutex<()>>,
     pub(crate) configured_tun_failures: tokio::sync::broadcast::Sender<String>,
     orchestration_ready: tokio::sync::watch::Sender<bool>,
+    #[cfg(feature = "raw-ip-runtime")]
+    device_reconciliation_active: tokio::sync::watch::Sender<bool>,
+    #[cfg(feature = "raw-ip-runtime")]
+    reconciled_device_generation: tokio::sync::watch::Sender<u64>,
     host: Arc<RuntimeHost>,
     packet_close_owner: Arc<packet_close_owner::PacketCloseOwner>,
     statistics: Arc<orchestration::statistics::Sampler>,
@@ -260,6 +264,10 @@ impl Proxy {
             tun_operation_lock: Arc::new(tokio::sync::Mutex::new(())),
             configured_tun_failures,
             orchestration_ready,
+            #[cfg(feature = "raw-ip-runtime")]
+            device_reconciliation_active: tokio::sync::watch::channel(false).0,
+            #[cfg(feature = "raw-ip-runtime")]
+            reconciled_device_generation: tokio::sync::watch::channel(0).0,
             packet_close_owner,
             statistics: Arc::new(orchestration::statistics::Sampler::with_task_budget(
                 component_tasks,
@@ -323,9 +331,25 @@ impl Proxy {
         ))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "raw-ip-runtime"))]
     pub(crate) fn orchestration_readiness(&self) -> tokio::sync::watch::Receiver<bool> {
         self.orchestration_ready.subscribe()
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn device_reconciliation_activity(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.device_reconciliation_active.subscribe()
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn set_device_reconciliation_active(&self, active: bool) {
+        self.device_reconciliation_active.send_replace(active);
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn reconciled_device_generations(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.reconciled_device_generation.subscribe()
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn publish_reconciled_device_generation(&self, generation: u64) {
+        self.reconciled_device_generation.send_replace(generation);
     }
     pub(crate) fn mark_orchestration_ready(&self) {
         self.orchestration_ready.send_replace(true);

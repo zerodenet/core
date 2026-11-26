@@ -90,7 +90,9 @@ impl Running {
         let (_, witness) = scope
             .registrar()
             .spawn_tracked(TaskClass::Critical, async move {
-                let witness = begin.await.unwrap();
+                let Ok(witness) = begin.await else {
+                    return Ok(());
+                };
                 actual.start(witness).unwrap();
                 actual.wait_started(end()).await.unwrap();
                 let deadline = end();
@@ -165,7 +167,21 @@ impl Running {
             .unwrap();
         process.bind_actor(witness.clone()).unwrap();
         process.attach_endpoint(&handoff).unwrap();
-        let address = handoff.acquire(&scope.registrar(), &witness).unwrap();
+        let address = match handoff.acquire(&scope.registrar(), &witness) {
+            Ok(address) => address,
+            Err(error) => {
+                drop(go);
+                handoff.request_stop();
+                let (native, tasks) =
+                    tokio::join!(process.wait_closed(end()), scope.shutdown(end()));
+                assert!(tasks.is_complete(), "{tasks:?}");
+                assert!(witness.is_joined());
+                assert!(native.unwrap().unwrap().matches(&process));
+                assert!(handoff.closed().unwrap().matches(&handoff));
+                assert_eq!(budget.snapshot().charged_jobs, 0);
+                return Err(error.to_string());
+            }
+        };
         assert_eq!(budget.snapshot().charged_jobs, 1);
         let reservations = handoff.close_reservations(end()).await.unwrap();
         assert!(reservations.matches(&handoff));

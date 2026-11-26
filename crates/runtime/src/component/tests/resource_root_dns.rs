@@ -169,9 +169,13 @@ async fn canceled_dns_query_retains_original_fd_until_explicit_native_close_afte
 #[tokio::test]
 async fn truncated_owned_udp_reply_never_falls_through_to_an_unowned_tcp_socket() {
     use std::{future::poll_fn, task::Poll};
-    let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-    let peer = server.local_addr().unwrap();
-    let tcp = tokio::net::TcpListener::bind(peer).await.unwrap();
+    let (server, peer, tcp) = loop {
+        let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer = server.local_addr().unwrap();
+        if let Ok(tcp) = tokio::net::TcpListener::bind(peer).await {
+            break (server, peer, tcp);
+        }
+    };
     let mut scope = TaskScope::new(Handle::current(), n(1));
     let (host, dns) = fixture(&scope, peer);
     let original = query();

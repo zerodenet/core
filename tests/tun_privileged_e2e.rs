@@ -299,9 +299,9 @@ fn privileged_command_managed_tun_publishes_egress_before_capture() {
     let config_path = directory.path().join("command-tun.json");
     std::fs::write(&config_path, fake_ip_doh_config_json(listen_port, false)).unwrap();
 
+    eprintln!("command-managed TUN: waiting for the original process to start idle");
+    let mut process = spawn_zero(binary, &config_path, &socket);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        eprintln!("command-managed TUN: waiting for the original process to start idle");
-        let mut process = spawn_zero(binary, &config_path, &socket);
         wait_for_tun(binary, &socket, false, false);
         eprintln!("command-managed TUN: requesting start over the original control channel");
         run_cli(
@@ -352,6 +352,22 @@ fn privileged_command_managed_tun_publishes_egress_before_capture() {
         let _ = Command::new(binary)
             .args(["tun", "stop", "--socket", path(&socket)])
             .output();
+        let _ = try_wait_for_tun(binary, &socket, false, None, None, Duration::from_secs(15));
+        process.kill_and_wait();
+        if !route_journals(&config_path).is_empty() {
+            let mut recovery: serde_json::Value =
+                serde_json::from_str(&fake_ip_doh_config_json(listen_port, true)).unwrap();
+            recovery["runtime"]["tun"]["name"] =
+                serde_json::Value::String(command_managed_tun_name().to_owned());
+            recovery["runtime"]["tun"]["tag"] =
+                serde_json::Value::String("tun-command-e2e".to_owned());
+            let recovery_path = directory.path().join("command-tun-recovery.json");
+            let _ = std::fs::write(
+                &recovery_path,
+                serde_json::to_vec_pretty(&recovery).unwrap(),
+            );
+            best_effort_route_recovery(binary, &socket, &recovery_path, &config_path);
+        }
         std::panic::resume_unwind(payload);
     }
 }

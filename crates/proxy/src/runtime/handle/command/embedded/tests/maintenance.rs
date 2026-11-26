@@ -101,3 +101,34 @@ async fn acknowledged_maintenance_keeps_async_ownership_on_a_current_thread_runt
     .await
     .unwrap();
 }
+
+#[cfg(all(feature = "raw-ip-runtime", feature = "mixed"))]
+#[tokio::test]
+async fn outbound_reconciliation_barrier_waits_until_services_restore_generation() {
+    timeout(Duration::from_secs(10), async {
+        let config =
+            zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
+        let proxy = Proxy::new(config).unwrap();
+        let running = proxy.spawn();
+        running
+            .wait_ready(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap();
+
+        proxy.egress_interface.invalidate_network();
+        let target = proxy.egress_interface.generation();
+        assert!(target > 0);
+        crate::runtime::handle::command::tun::wait_for_outbound_reconciliation(&proxy)
+            .await
+            .unwrap();
+        assert!(*proxy.reconciled_device_generations().borrow() >= target);
+
+        running.shutdown().await.unwrap();
+        proxy.egress_interface.invalidate_network();
+        crate::runtime::handle::command::tun::wait_for_outbound_reconciliation(&proxy)
+            .await
+            .unwrap();
+    })
+    .await
+    .unwrap();
+}

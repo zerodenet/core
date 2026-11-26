@@ -260,6 +260,11 @@ impl OrchestrationState {
         self.publish_endpoint_facts(proxy);
         log_started(proxy, snapshot.config());
         self.services.accept().await;
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            proxy.publish_reconciled_device_generation(self.device_generation);
+            proxy.set_device_reconciliation_active(true);
+        }
         proxy.mark_orchestration_ready();
 
         Ok(())

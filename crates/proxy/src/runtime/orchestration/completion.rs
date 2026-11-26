@@ -14,6 +14,8 @@ impl OrchestrationState {
         mut result: Result<(), EngineError>,
     ) -> Result<(), EngineError> {
         let mut cleanup_errors = Vec::new();
+        #[cfg(feature = "raw-ip-runtime")]
+        proxy.set_device_reconciliation_active(false);
         proxy.host.embedded_commands().begin_shutdown();
         // No component/Engine resource may close while its original sampling
         // worker still reads it. The cold Proxy retains this exact Scope even
