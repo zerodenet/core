@@ -44,6 +44,7 @@ impl UdpDispatch {
             flow_start_backoff: Default::default(),
             direct_socket,
             flow_state,
+            source_process: None,
             cancel_tx,
             cancel_rx,
         })

@@ -122,7 +122,11 @@ impl UdpDispatch {
         let started_at = Instant::now();
         let target_resolution = runtime.resolve_fake_ip_target(&mut session).await;
         let admission = runtime
-            .prepare_udp_session(&mut session, &self.inbound_tag)
+            .prepare_udp_session_with_cached_process(
+                &mut session,
+                &self.inbound_tag,
+                &mut self.source_process,
+            )
             .await?;
         let mut session_handle = runtime.track_session(session.id);
         let runtime = runtime.with_admission(&session, admission)?;

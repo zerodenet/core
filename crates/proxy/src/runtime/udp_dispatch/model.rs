@@ -33,6 +33,10 @@ pub(crate) struct UdpDispatch {
     pub(super) direct_socket: DispatchDirectSockets,
     /// Managed protocol, packet-path, and chain response state for this UDP session.
     pub(super) flow_state: UdpFlowState,
+    pub(super) source_process: Option<(
+        std::net::SocketAddr,
+        Option<zero_platform_tokio::LocalProcessInfo>,
+    )>,
     pub(super) cancel_tx: tokio::sync::mpsc::UnboundedSender<UdpFlowCancellation>,
     pub(super) cancel_rx: tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,
 }

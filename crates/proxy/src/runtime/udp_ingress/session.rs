@@ -12,10 +12,25 @@ impl UdpIngressRuntime {
         }
     }
 
+    #[cfg(test)]
     pub(crate) async fn prepare_udp_session(
         &self,
         session: &mut Session,
         inbound_tag: &str,
+    ) -> Result<crate::component::business_demand::AdmittedBusinessDemand, EngineError> {
+        let mut uncached = None;
+        self.prepare_udp_session_with_cached_process(session, inbound_tag, &mut uncached)
+            .await
+    }
+
+    pub(crate) async fn prepare_udp_session_with_cached_process(
+        &self,
+        session: &mut Session,
+        inbound_tag: &str,
+        cached_process: &mut Option<(
+            std::net::SocketAddr,
+            Option<zero_platform_tokio::LocalProcessInfo>,
+        )>,
     ) -> Result<crate::component::business_demand::AdmittedBusinessDemand, EngineError> {
         #[cfg(feature = "raw-ip-runtime")]
         let phase = self
@@ -46,7 +61,17 @@ impl UdpIngressRuntime {
         }
         if session.process_id.is_none() {
             if let Some(source_addr) = self.source_addr {
-                if let Some(info) = self.lookup_local_process(source_addr).await? {
+                let info = match cached_process {
+                    Some((cached_addr, cached_info)) if *cached_addr == source_addr => {
+                        cached_info.clone()
+                    }
+                    _ => {
+                        let resolved = self.lookup_local_process(source_addr).await?;
+                        *cached_process = Some((source_addr, resolved.clone()));
+                        resolved
+                    }
+                };
+                if let Some(info) = info {
                     session.process_id = Some(info.pid);
                     session.process_name = info.name;
                     session.process_path = info.path;
