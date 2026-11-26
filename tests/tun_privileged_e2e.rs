@@ -2522,42 +2522,66 @@ impl MockDns {
         let socket = UdpSocket::bind("127.0.0.1:0").expect("bind mock DNS");
         let address = socket.local_addr().unwrap();
         socket
-            .set_read_timeout(Some(Duration::from_millis(100)))
-            .unwrap();
+            .set_nonblocking(true)
+            .expect("configure nonblocking mock DNS socket");
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let query_counts = Arc::new(Mutex::new(HashMap::new()));
         let worker_query_counts = Arc::clone(&query_counts);
         let worker = thread::spawn(move || {
             let mut packet = [0_u8; 2048];
+            let mut pending: std::collections::VecDeque<(Instant, SocketAddr, Vec<u8>)> =
+                std::collections::VecDeque::new();
             while !worker_stop.load(Ordering::Relaxed) {
-                match socket.recv_from(&mut packet) {
-                    Ok((size, peer)) => {
-                        if let Some((_, query_type, domain)) = dns_question_details(&packet[..size])
-                        {
-                            *worker_query_counts
-                                .lock()
-                                .expect("mock DNS query-count lock poisoned")
-                                .entry((domain, query_type))
-                                .or_default() += 1;
+                loop {
+                    match socket.recv_from(&mut packet) {
+                        Ok((size, peer)) => {
+                            if let Some((_, query_type, domain)) =
+                                dns_question_details(&packet[..size])
+                            {
+                                *worker_query_counts
+                                    .lock()
+                                    .expect("mock DNS query-count lock poisoned")
+                                    .entry((domain, query_type))
+                                    .or_default() += 1;
+                            }
+                            if let Some(response) =
+                                mock_dns_response_with_ipv4(&packet[..size], ipv4_answer)
+                            {
+                                if response_delay.is_zero() {
+                                    send_mock_dns_packet(&socket, &response, peer);
+                                } else {
+                                    pending.push_back((
+                                        Instant::now() + response_delay,
+                                        peer,
+                                        response,
+                                    ));
+                                }
+                            }
                         }
-                        if !response_delay.is_zero() {
-                            thread::sleep(response_delay);
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                        // Windows UDP loopback returns ConnectionReset (WSAECONNRESET)
+                        // if a prior client socket closed before reading its reply.
+                        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {
+                            continue;
                         }
-                        if let Some(response) =
-                            mock_dns_response_with_ipv4(&packet[..size], ipv4_answer)
-                        {
-                            socket
-                                .send_to(&response, peer)
-                                .expect("send mock DNS response");
-                        }
+                        Err(error) => panic!("receive mock DNS query: {error}"),
                     }
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                        ) => {}
-                    Err(error) => panic!("receive mock DNS query: {error}"),
+                }
+                let now = Instant::now();
+                while pending.front().is_some_and(|(due, _, _)| *due <= now) {
+                    let (_, peer, response) = pending.pop_front().unwrap();
+                    send_mock_dns_packet(&socket, &response, peer);
+                }
+                let sleep_for = pending
+                    .front()
+                    .map(|(due, _, _)| {
+                        due.saturating_duration_since(Instant::now())
+                            .min(Duration::from_millis(5))
+                    })
+                    .unwrap_or(Duration::from_millis(5));
+                if !sleep_for.is_zero() {
+                    thread::sleep(sleep_for);
                 }
             }
         });
@@ -2654,4 +2678,67 @@ fn dns_question_details(query: &[u8]) -> Option<(usize, u16, String)> {
         query_type,
         labels.join(".").to_ascii_lowercase(),
     ))
+}
+
+fn send_mock_dns_packet(socket: &UdpSocket, response: &[u8], peer: SocketAddr) {
+    for _ in 0..3 {
+        match socket.send_to(response, peer) {
+            Ok(_) => return,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => return,
+            Err(error) => panic!("send mock DNS response: {error}"),
+        }
+    }
+}
+
+#[test]
+fn mock_dns_survives_closed_client_port_and_avoids_head_of_line_blocking() {
+    let mock_dns = MockDns::start_with_ipv4_answer([127, 0, 0, 1], Duration::from_millis(250));
+
+    // Drop a client socket before the delayed reply is sent so Windows UDP
+    // loopback delivers WSAECONNRESET back to the MockDns socket.
+    {
+        let ephemeral = UdpSocket::bind("127.0.0.1:0").unwrap();
+        ephemeral
+            .send_to(
+                &dns_query(0x7300, "closed-client.zero.test"),
+                mock_dns.address,
+            )
+            .unwrap();
+    }
+    thread::sleep(Duration::from_millis(300));
+
+    let background = UdpSocket::bind("127.0.0.1:0").unwrap();
+    for id in 0..25_u16 {
+        background
+            .send_to(
+                &dns_query(0x7400 + id, &format!("bg-{id}.zero.test")),
+                mock_dns.address,
+            )
+            .unwrap();
+    }
+
+    let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let started = Instant::now();
+    client
+        .send_to(&dns_query(0x7500, ONLY_AAAA_E2E_DOMAIN), mock_dns.address)
+        .unwrap();
+    let mut reply = [0_u8; 512];
+    let (size, _) = client
+        .recv_from(&mut reply)
+        .expect("MockDns must stay alive after closed-port reset and answer without HOL blocking");
+    assert!(size >= 12);
+    assert_eq!(&reply[..2], &0x7500_u16.to_be_bytes());
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "MockDns head-of-line blocked behind background queries: {:?}",
+        started.elapsed()
+    );
+    #[cfg(windows)]
+    assert_eq!(mock_dns.query_count(ONLY_AAAA_E2E_DOMAIN, 1), 1);
 }
