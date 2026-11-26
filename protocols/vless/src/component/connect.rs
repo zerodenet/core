@@ -7,12 +7,13 @@ use zero_core::component::SessionId;
 use zero_platform_tokio::{
     contract::{
         admission::SessionAdmission,
-        context::{with_deadline, ConnectFact, OpenContext},
+        context::{ConnectFact, OpenContext},
         stream::{BoxStream, Connected, PeerConfirmation},
         ChannelError, DeliveryState, Reason, Stage,
     },
     TcpRelayStream,
 };
+use zero_transport::runner::GuardedCall;
 pub(super) async fn submit(
     options: &Options,
     admission: &Arc<SessionAdmission>,
@@ -66,55 +67,46 @@ struct Framing {
 }
 async fn submit_actual(
     options: Framing,
-    admission: &SessionAdmission,
+    admission: &Arc<SessionAdmission>,
     session: Option<SessionId>,
     context: OpenContext,
     mut io: TcpRelayStream,
     bytes: Vec<u8>,
 ) -> Result<Connected<BoxStream>, ChannelError> {
-    admission.check(&context)?;
+    let call = GuardedCall::enter(admission, &context, None)?;
     if context.deadline_elapsed() {
-        return Err(admission.error(
-            session,
-            Stage::Handshake,
-            Reason::Timeout,
-            DeliveryState::Unknown,
-        ));
+        return Err(call.error(Stage::Handshake, Reason::Timeout, DeliveryState::Unknown));
     }
     let control = zero_traits::AsyncSocket::transport_bypass_control(&io);
-    let submit = async {
+    call.run_io(Stage::Handshake, DeliveryState::Unknown, async {
         io.write_all(&bytes).await?;
         io.flush().await
-    };
-    tokio::select! { biased;
-            _ = admission.cancelled() => return Err(admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result = with_deadline(context.deadline,submit) => result.map_err(|source| admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source| admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
-    if let Some(observer) = &context.observer {
-        // WebSocket early data can defer the upgrade until write/flush.
-        // Only successful flush proves that the complete carrier is ready.
-        observer.record(session, ConnectFact::CarrierReady);
-        observer.record(session, ConnectFact::RequestSubmitted);
-        observer.protocol_traffic(session, 0, bytes.len() as u64);
-    }
+    })
+    .await?;
+    let facts = call.facts();
+    // WebSocket early data can defer the upgrade until write/flush.
+    // Only successful flush proves that the complete carrier is ready.
+    facts.record(ConnectFact::CarrierReady);
+    facts.record(ConnectFact::RequestSubmitted);
+    facts.protocol_traffic(0, bytes.len() as u64);
     // Rvs authentication is complete before publishing its request source.
     // Other TCP peers can wait for application data, so retain deferred reads.
     let reverse = super::request::dialed_ingress(&context);
     if reverse {
-        let read = crate::shared::read_response_len(&mut io);
-        let read_bytes = tokio::select! { biased;
-            _ = admission.cancelled() => return Err(admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result = with_deadline(context.deadline,read) => result.map_err(|source| admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source| {
-            if let Some(observer) = &context.observer { observer.record(session, ConnectFact::PeerRejected); }
-            admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source)
-        })?;
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::PeerConfirmed);
-            observer.protocol_traffic(session, read_bytes as u64, bytes.len() as u64);
-        }
+        let read_bytes = call
+            .run(
+                Stage::Handshake,
+                DeliveryState::Unknown,
+                crate::shared::read_response_len(&mut io),
+            )
+            .await?
+            .map_err(|source| {
+                facts.record(ConnectFact::PeerRejected);
+                call.error(Stage::Handshake, Reason::Io, DeliveryState::Unknown)
+                    .with_source(source)
+            })?;
+        facts.record(ConnectFact::PeerConfirmed);
+        facts.protocol_traffic(read_bytes as u64, bytes.len() as u64);
         let io: BoxStream = if crate::flow::is_vision_flow(options.flow) {
             Box::pin(crate::vision::VisionStream::with_testseed(
                 io,

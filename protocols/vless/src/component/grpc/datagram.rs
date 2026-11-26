@@ -4,10 +4,11 @@ use super::factory::Outbound;
 use tokio::io::AsyncWriteExt;
 use zero_core::request::DatagramTargets;
 use zero_platform_tokio::contract::{
-    context::{with_deadline, ConnectFact, OpenContext},
+    context::{ConnectFact, OpenContext},
     datagram::{DatagramOutbound, DatagramRequest, DatagramSession},
     ChannelError, DeliveryState, Reason, Stage,
 };
+use zero_transport::runner::GuardedCall;
 impl DatagramOutbound for Outbound {
     type Tx = Tx;
     type Rx = Rx;
@@ -17,10 +18,9 @@ impl DatagramOutbound for Outbound {
         request: DatagramRequest,
         context: OpenContext,
     ) -> Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError> {
-        let session = self.admission.check(&context)?;
+        let call = GuardedCall::enter(&self.admission, &context, None)?;
         let DatagramTargets::Fixed(target) = &request.targets else {
-            return Err(self.admission.error(
-                session,
+            return Err(call.error(
                 Stage::Prepare,
                 Reason::Unsupported,
                 DeliveryState::NotSubmitted,
@@ -36,16 +36,14 @@ impl DatagramOutbound for Outbound {
         let bytes = prepared
             .request(&target, &self.options.protocol().uuid)
             .map_err(|source| {
-                self.admission
-                    .error(
-                        session,
-                        Stage::Prepare,
-                        Reason::InvalidConfig,
-                        DeliveryState::NotSubmitted,
-                    )
-                    .with_source(source)
+                call.error(
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(source)
             })?;
-        let raw = self.acquire(&context).await?;
+        let raw = self.acquire(&call).await?;
         let super::super::preconnect::Opened {
             io,
             control,
@@ -56,20 +54,16 @@ impl DatagramOutbound for Outbound {
         // facts for this Business/Service invocation; observation grants no IO.
         context.upstream.observe_carrier_origin(&original);
         let mut io = io;
-        let handshake = async {
+        call.run_io(Stage::Handshake, DeliveryState::Unknown, async {
             io.write_all(&bytes).await?;
             io.flush().await
-        };
-        tokio::select! {biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,handshake)=>result.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::CarrierReady);
-            observer.record(session, ConnectFact::RequestSubmitted);
-            observer.protocol_traffic(session, 0, bytes.len() as u64);
-        }
+        })
+        .await?;
+        let facts = call.facts();
+        facts.record(ConnectFact::CarrierReady);
+        facts.record(ConnectFact::RequestSubmitted);
+        facts.protocol_traffic(0, bytes.len() as u64);
+        let session = call.session();
         drop(bytes);
         // The peer may wait for the first UDP payload before replying. The
         // same Rx validates/accounts its real header and confirms the peer;

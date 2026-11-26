@@ -5,6 +5,7 @@ use zero_platform_tokio::contract::{
     ChannelError, DeliveryState, Reason, Stage,
 };
 use zero_platform_tokio::controlled_carrier::loan::StreamLoan;
+use zero_transport::runner::GuardedCall;
 mod ordinary;
 impl StreamOutbound for Outbound {
     type Stream = BoxStream;
@@ -33,10 +34,9 @@ impl Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<StreamLoan>, ChannelError> {
-        let session = self.admission.check(&context)?;
+        let call = GuardedCall::enter(&self.admission, &context, None)?;
         if request.destination.port == 0 {
-            return Err(self.admission.error(
-                session,
+            return Err(call.error(
                 Stage::Prepare,
                 Reason::InvalidConfig,
                 DeliveryState::NotSubmitted,
@@ -46,16 +46,15 @@ impl Outbound {
         let bytes = options
             .stream_request(&request, &context)
             .map_err(|source| {
-                self.admission
-                    .error(
-                        session,
-                        Stage::Prepare,
-                        Reason::InvalidConfig,
-                        DeliveryState::NotSubmitted,
-                    )
-                    .with_source(source)
+                call.error(
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(source)
             })?;
-        let io = self.acquire(&context).await?;
+        let session = call.session();
+        let io = self.acquire(&call).await?;
         // Extract the real logical controller before protocol submission can
         // suspend. Failed/cancelled submission stops this exact worker record;
         // the same persistent pool retains its physical original and Scope.
@@ -78,9 +77,9 @@ impl Outbound {
     }
     pub(super) async fn acquire(
         &self,
-        context: &OpenContext,
+        call: &GuardedCall<'_>,
     ) -> Result<super::super::preconnect::Opened, ChannelError> {
-        let session = self.admission.check(context)?;
+        let context = call.context();
         let opening = async {
             match &self.options.source {
                 super::options::Source::Carrier { pool, .. } => pool.open(self.pool, context).await,
@@ -111,20 +110,25 @@ impl Outbound {
                 }
             }
         };
-        let mut opened = tokio::select! {biased;
-         _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::NotSubmitted)),
-         _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::NotSubmitted)),
-         result=zero_platform_tokio::contract::context::with_deadline(context.deadline,opening)=>result.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?.map_err(|failure|self.admission.attach(failure,session))?,
-        };
+        let mut opened = call
+            .run(Stage::Handshake, DeliveryState::NotSubmitted, opening)
+            .await
+            .map_err(|mut failure| {
+                if failure.reason == Reason::Timeout {
+                    failure.delivery = DeliveryState::Unknown;
+                }
+                failure
+            })?
+            .map_err(|failure| call.attach(failure))?;
         if let Some(encryption) = &self.options.protocol().encryption {
-            let handshake = encryption.handshake(opened.io);
-            opened.io = tokio::select! {biased;
-                _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-                _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-                result=zero_platform_tokio::contract::context::with_deadline(context.deadline,handshake)=>result
-                    .map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?
-                    .map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?.into_relay(),
-            };
+            opened.io = call
+                .run_io(
+                    Stage::Handshake,
+                    DeliveryState::Unknown,
+                    encryption.handshake(opened.io),
+                )
+                .await?
+                .into_relay();
         }
         Ok(opened)
     }

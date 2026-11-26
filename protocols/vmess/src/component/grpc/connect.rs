@@ -3,10 +3,7 @@ use super::{
     *,
 };
 use std::sync::atomic::AtomicBool;
-use zero_platform_tokio::contract::{
-    context::{with_deadline, OpenContext},
-    network::CarrierContext,
-};
+use zero_platform_tokio::contract::{context::OpenContext, network::CarrierContext};
 pub(super) mod epoch;
 mod prepare;
 mod setup;

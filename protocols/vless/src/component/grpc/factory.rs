@@ -8,10 +8,12 @@ use zero_platform_tokio::contract::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
         ResourceOwner, RoleKind,
     },
-    lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle},
+    lifecycle::{BuildError, CloseReport, ResourceLifecycle},
     stream::erase_stream,
     CloseReason, DeliveryState, Reason, Stage,
 };
+use zero_transport::runner::LifecycleChain;
+
 pub struct StreamFactory;
 pub(super) struct Outbound {
     pub(super) options: Arc<StreamOptions>,
@@ -19,10 +21,18 @@ pub(super) struct Outbound {
     pub(super) pool: ComponentInstanceId,
     pub(super) datagram_budget: Option<crate::component::datagram::Budget>,
 }
-struct Owner {
-    inner: SessionOwner,
+struct PoolBindingCheck {
     options: Arc<StreamOptions>,
     pool: ComponentInstanceId,
+}
+impl ResourceLifecycle for PoolBindingCheck {
+    async fn start(&mut self, _deadline: Instant) -> Result<(), BuildError> {
+        self.options.matches(self.pool)
+    }
+    fn revoke(&self, _reason: CloseReason) {}
+    async fn shutdown(&mut self, _deadline: Instant) -> Result<CloseReport, BuildError> {
+        Ok(CloseReport::default())
+    }
 }
 impl ComponentFactory for StreamFactory {
     type Options = StreamOptions;
@@ -78,12 +88,15 @@ impl StreamFactory {
             ));
         }
         let pool = pool.unwrap();
-        Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(Owner {
-                inner,
+        let lifecycle = LifecycleChain::new()
+            .push_typed(PoolBindingCheck {
                 options: options.clone(),
                 pool,
-            }),
+            })
+            .push_typed(inner)
+            .into_boxed();
+        Ok(ComponentInstance {
+            lifecycle,
             roles: ComponentRoles {
                 stream: Some(erase_stream(Outbound {
                     options: options.clone(),
@@ -102,17 +115,5 @@ impl StreamFactory {
                 ..Default::default()
             },
         })
-    }
-}
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
-        self.options.matches(self.pool)?;
-        self.inner.start(deadline).await
-    }
-    fn revoke(&self, reason: CloseReason) {
-        self.inner.revoke(reason);
-    }
-    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
-        self.inner.shutdown(deadline).await
     }
 }

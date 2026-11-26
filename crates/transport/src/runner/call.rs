@@ -8,7 +8,7 @@ use zero_platform_tokio::{
         context::{with_deadline, ConnectFact, ConnectObserver, OpenContext},
         network::CarrierContext,
         stream::BoxStream,
-        ChannelError, DeliveryState, Reason, Stage,
+        CancellationToken, ChannelError, DeliveryState, Reason, Stage,
     },
     controlled_carrier::loan::StreamLoan,
 };
@@ -126,6 +126,25 @@ impl<'a> GuardedCall<'a> {
         tokio::select! {
             biased;
             _ = self.admission.cancelled() => Err(self.error(stage, Reason::Revoked, delivery)),
+            _ = self.context.cancel.cancelled() => Err(self.error(stage, Reason::Cancelled, delivery)),
+            result = with_deadline(self.context.deadline, fut) => result
+                .map_err(|source| self.error(stage, Reason::Timeout, delivery).with_source(source)),
+        }
+    }
+
+    /// Run `fut` under biased admission revocation, task-scope cancellation,
+    /// caller cancellation, and call deadline racing.
+    pub async fn run_scoped<T>(
+        &self,
+        scope_cancel: &CancellationToken,
+        stage: Stage,
+        delivery: DeliveryState,
+        fut: impl Future<Output = T>,
+    ) -> Result<T, ChannelError> {
+        tokio::select! {
+            biased;
+            _ = self.admission.cancelled() => Err(self.error(stage, Reason::Revoked, delivery)),
+            _ = scope_cancel.cancelled() => Err(self.error(stage, Reason::Revoked, delivery)),
             _ = self.context.cancel.cancelled() => Err(self.error(stage, Reason::Cancelled, delivery)),
             result = with_deadline(self.context.deadline, fut) => result
                 .map_err(|source| self.error(stage, Reason::Timeout, delivery).with_source(source)),
