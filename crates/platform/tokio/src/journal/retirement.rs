@@ -74,12 +74,7 @@ impl SourceCustody for Core {
         self.hosted.as_ref().map(|hosted| hosted.instance)
     }
     fn released(&self) -> bool {
-        let closed = match self.state.try_lock() {
-            Ok(state) => state.closed.is_some(),
-            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner().closed.is_some(),
-            Err(std::sync::TryLockError::WouldBlock) => false,
-        };
-        closed
+        self.closed.load(Ordering::Acquire)
             && self
                 .hosted
                 .as_ref()

@@ -271,7 +271,9 @@ impl DirectConnector {
             .map_err(|_| Error::Config("invalid outbound dial policy"))?;
         self.validate(session)?;
 
-        for attempt in 0..2 {
+        const MAX_DIRECT_RESOLUTION_GENERATION_ATTEMPTS: usize = 5;
+
+        for attempt in 0..MAX_DIRECT_RESOLUTION_GENERATION_ATTEMPTS {
             let generation = egress.generation();
             let result = self
                 .resolve_target_addrs_at_generation(session, resolver, egress, policy, opener)
@@ -283,7 +285,7 @@ impl DirectConnector {
             tracing::debug!(
                 resolution_generation = generation,
                 current_egress_generation = current_generation,
-                retry = attempt == 0,
+                retry = attempt + 1 < MAX_DIRECT_RESOLUTION_GENERATION_ATTEMPTS,
                 "discarding direct resolution from an obsolete egress generation"
             );
         }

@@ -5,8 +5,9 @@ impl ControlledCandidates {
         &self,
         source: CandidateRefresh,
     ) -> Result<(CarrierAdoption, Option<CarrierUserView>), ChannelError> {
-        if source.candidate().generation() != self.generation
-            || self.services.network_generation() != self.generation.0
+        let expected = self.begin_dial_generation(source.candidate().generation().0);
+        if source.candidate().generation() != expected
+            || self.services.network_generation() != expected.0
         {
             return Err(invalid(
                 Reason::StalePlan,

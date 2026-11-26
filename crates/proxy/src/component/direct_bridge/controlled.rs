@@ -15,7 +15,10 @@ use crate::{
 pub(in crate::component) use demand::{DirectDemand, ProbeRequest};
 use std::{
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use tokio::time::Instant;
@@ -48,7 +51,9 @@ pub(super) struct ControlledCandidates {
     context: CarrierContext,
     services: UpstreamConnectServices,
     policy: DialPolicy,
-    generation: NetworkGeneration,
+    generation: AtomicU64,
+    resolved_domain: AtomicBool,
+    dial_started: AtomicBool,
     last_failed: Mutex<Option<CarrierAdoption>>,
 }
 impl ControlledCandidates {
@@ -69,9 +74,26 @@ impl ControlledCandidates {
             context,
             services,
             policy: binding.dial,
-            generation: binding.network_generation,
+            generation: AtomicU64::new(binding.network_generation.0),
+            resolved_domain: AtomicBool::new(false),
+            dial_started: AtomicBool::new(false),
             last_failed: Mutex::new(None),
         })
+    }
+    pub(in crate::component::direct_bridge) fn generation(&self) -> NetworkGeneration {
+        NetworkGeneration(self.generation.load(Ordering::Acquire))
+    }
+    pub(super) fn begin_dial_generation(&self, selected: u64) -> NetworkGeneration {
+        if matches!(self.demand.request, DirectDemand::Business(_))
+            && self
+                .dial_started
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            && !self.resolved_domain.load(Ordering::Acquire)
+        {
+            self.generation.store(selected, Ordering::Release);
+        }
+        self.generation()
     }
     fn binding(&self, generation: NetworkGeneration) -> UpstreamBinding {
         UpstreamBinding {
@@ -135,7 +157,8 @@ impl ControlledCandidates {
         policy: &DialPolicy,
     ) -> Result<CandidateOpened<io::DirectIo>, ChannelError> {
         let remote = candidate.peer();
-        if candidate.generation() != self.generation
+        let expected = self.begin_dial_generation(selection.generation());
+        if candidate.generation() != expected
             || candidate.generation().0 != selection.generation()
             || policy != &self.policy
             || selection.generation() != self.services.network_generation()

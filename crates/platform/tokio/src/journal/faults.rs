@@ -54,20 +54,10 @@ pub(super) fn actual<T>(
     result.map_err(|error| retained(source.get_or_insert_with(|| Arc::new(error)).clone()))
 }
 impl Core {
-    pub(super) fn capture_faults(&self, state: &State) {
-        let observed = [
-            state.work_failure.clone().or_else(|| {
-                state
-                    .start_failure
-                    .as_ref()
-                    .and_then(|failure| failure.work.clone())
-            }),
-            state.lock.close_failure(),
-            state.read.close_failure(),
-            state.append.close_failure(),
-            state.temporary.close_failure(),
-            state.path_failure.clone(),
-        ];
+    pub(super) fn record_faults(&self, observed: Sources) -> bool {
+        if !observed.iter().any(Option::is_some) {
+            return false;
+        }
         let mut sources = self
             .fault_sources
             .lock()
@@ -77,14 +67,13 @@ impl Core {
                 *retained = actual;
             }
         }
+        drop(sources);
+        self.has_fault.store(true, Ordering::Release);
+        true
     }
     pub(super) fn failure(&self) -> Option<Arc<ChannelError>> {
-        match self.state.try_lock() {
-            Ok(state) => self.capture_faults(&state),
-            Err(std::sync::TryLockError::Poisoned(error)) => {
-                self.capture_faults(&error.into_inner())
-            }
-            Err(std::sync::TryLockError::WouldBlock) => {}
+        if !self.has_fault.load(Ordering::Acquire) {
+            return None;
         }
         let first = self
             .fault_sources

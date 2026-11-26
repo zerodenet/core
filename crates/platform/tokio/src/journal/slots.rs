@@ -67,7 +67,6 @@ impl Slot {
 }
 #[derive(Default)]
 pub(super) struct State {
-    pub identity: Arc<CoreIdentity>,
     pub closed: Option<JournalClosed>,
     pub closing: bool,
     pub started: bool,
@@ -82,12 +81,21 @@ pub(super) struct State {
     pub path_failure: Option<Arc<io::Error>>,
     pub work_failure: Option<Arc<io::Error>>,
 }
-impl Default for CoreIdentity {
-    fn default() -> Self {
-        Self
-    }
-}
 impl State {
+    pub fn observed_faults(&self) -> super::faults::Sources {
+        [
+            self.work_failure.clone().or_else(|| {
+                self.start_failure
+                    .as_ref()
+                    .and_then(|failure| failure.work.clone())
+            }),
+            self.lock.close_failure(),
+            self.read.close_failure(),
+            self.append.close_failure(),
+            self.temporary.close_failure(),
+            self.path_failure.clone(),
+        ]
+    }
     pub fn discard_temporary(&mut self) -> io::Result<()> {
         if let Some(path) = &self.temporary_path {
             match std::fs::remove_file(path.as_ref() as &std::path::Path) {
@@ -105,7 +113,7 @@ impl State {
         self.temporary_path.take();
         Ok(())
     }
-    pub fn close_all(&mut self) -> io::Result<JournalClosed> {
+    pub fn close_all(&mut self, identity: &Arc<CoreIdentity>) -> io::Result<JournalClosed> {
         self.closing = true;
         // Drive every independent original even if one close remains Unknown.
         let mut first = None;
@@ -134,7 +142,7 @@ impl State {
         // A TempPath is metadata, not a close receipt. Unlink only after the
         // actual temporary original has matching positive close evidence.
         self.discard_temporary()?;
-        let receipt = JournalClosed(self.identity.clone());
+        let receipt = JournalClosed(identity.clone());
         self.closed = Some(receipt.clone());
         Ok(receipt)
     }
@@ -157,19 +165,13 @@ pub(super) fn finish<T>(work: io::Result<T>, close: Result<(), Arc<io::Error>>) 
 /// wake/callback can reenter while a journal IO mutex remains held.
 pub(super) struct Operation<'a> {
     state: Option<std::sync::MutexGuard<'a, State>>,
-    changed: &'a tokio::sync::Notify,
-    stop: Option<&'a CancellationToken>,
+    core: &'a Core,
 }
 impl<'a> Operation<'a> {
-    pub fn new(
-        state: std::sync::MutexGuard<'a, State>,
-        changed: &'a tokio::sync::Notify,
-        stop: Option<&'a CancellationToken>,
-    ) -> Self {
+    pub fn new(state: std::sync::MutexGuard<'a, State>, core: &'a Core) -> Self {
         Self {
             state: Some(state),
-            changed,
-            stop,
+            core,
         }
     }
 }
@@ -186,16 +188,17 @@ impl std::ops::DerefMut for Operation<'_> {
 }
 impl Drop for Operation<'_> {
     fn drop(&mut self) {
-        let failed = self
+        let observed = self
             .state
             .as_deref()
-            .is_some_and(|state| state.work_failure.is_some() || state.start_failure.is_some());
+            .map(State::observed_faults)
+            .unwrap_or_default();
         drop(self.state.take());
-        if failed {
-            if let Some(stop) = self.stop {
-                stop.cancel();
+        if self.core.record_faults(observed) {
+            if let Some(hosted) = &self.core.hosted {
+                hosted.stop.cancel();
             }
         }
-        self.changed.notify_waiters();
+        self.core.changed.notify_waiters();
     }
 }

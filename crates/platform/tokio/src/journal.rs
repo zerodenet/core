@@ -40,12 +40,15 @@ pub struct JournalGrant(Arc<Core>);
 /// Cold durable controller. Keep it before opening; grants confer no close.
 pub struct JournalOwner(Arc<Core>);
 struct Core {
+    identity: Arc<CoreIdentity>,
     spec: JournalSpec,
     hosted: Option<Hosted>,
     state: Mutex<State>,
     native_fault: Mutex<Option<Arc<ChannelError>>>,
     fault_sources: Arc<Mutex<faults::Sources>>,
+    has_fault: AtomicBool,
     closing: AtomicBool,
+    closed: AtomicBool,
     changed: Arc<tokio::sync::Notify>,
 }
 struct Hosted {
@@ -126,12 +129,15 @@ impl JournalOwner {
             ));
         }
         Ok(Self(Arc::new(Core {
+            identity: Arc::new(CoreIdentity),
             spec,
             hosted,
             state: Mutex::new(State::default()),
             native_fault: Mutex::default(),
             fault_sources: Arc::default(),
+            has_fault: AtomicBool::new(false),
             closing: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
             changed: Arc::default(),
         })))
     }
@@ -148,19 +154,13 @@ impl JournalOwner {
         self.0.try_close()
     }
     pub fn closed(&self) -> Option<JournalClosed> {
-        match self.0.state.try_lock() {
-            Ok(state) => state.closed.clone(),
-            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner().closed.clone(),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-        }
+        self.0
+            .closed
+            .load(Ordering::Acquire)
+            .then(|| JournalClosed(self.0.identity.clone()))
     }
     pub fn matches_closed(&self, receipt: &JournalClosed) -> bool {
-        let state = match self.0.state.try_lock() {
-            Ok(state) => state,
-            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return false,
-        };
-        Arc::ptr_eq(&state.identity, &receipt.0) && state.closed.is_some()
+        self.0.closed.load(Ordering::Acquire) && Arc::ptr_eq(&self.0.identity, &receipt.0)
     }
     pub fn max_bytes(&self) -> usize {
         self.0.spec.max_bytes.get()
@@ -175,11 +175,7 @@ impl JournalGrant {
     }
     /// Positive same-controller native state only; never the Scope ACK.
     pub fn native_closed(&self) -> bool {
-        match self.0.state.try_lock() {
-            Ok(state) => state.closed.is_some(),
-            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner().closed.is_some(),
-            Err(std::sync::TryLockError::WouldBlock) => false,
-        }
+        self.0.closed.load(Ordering::Acquire)
     }
     pub fn host_scope(
         &self,
@@ -212,16 +208,10 @@ impl Core {
     }
     fn call_state(&self) -> io::Result<slots::Operation<'_>> {
         match self.state.try_lock() {
-            Ok(state) => Ok(slots::Operation::new(
-                state,
-                &self.changed,
-                self.hosted.as_ref().map(|hosted| &hosted.stop),
-            )),
-            Err(std::sync::TryLockError::Poisoned(error)) => Ok(slots::Operation::new(
-                error.into_inner(),
-                &self.changed,
-                self.hosted.as_ref().map(|hosted| &hosted.stop),
-            )),
+            Ok(state) => Ok(slots::Operation::new(state, self)),
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                Ok(slots::Operation::new(error.into_inner(), self))
+            }
             Err(std::sync::TryLockError::WouldBlock) => Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "journal already has its one actual IO call",

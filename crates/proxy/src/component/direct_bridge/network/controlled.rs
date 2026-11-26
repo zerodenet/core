@@ -7,11 +7,11 @@ use zero_platform_tokio::contract::{network::ControlledStreamRequest, Impact, St
 impl DirectOpener {
     pub(super) async fn open_controlled(
         &self,
-        binding: UpstreamBinding,
+        mut binding: UpstreamBinding,
         request: ControlledStreamRequest,
     ) -> Result<BoxStream, ChannelError> {
         if !binding.prefix.is_empty()
-            || binding.network_generation.0 != self.generation()
+            || (self.probe.is_some() && binding.network_generation.0 != self.generation())
             || request.destination
                 != Destination::new(self.session.target.clone(), self.session.port)
         {
@@ -19,6 +19,9 @@ impl DirectOpener {
                 Reason::StalePlan,
                 "controlled Direct differs from its original destination/policy generation",
             ));
+        }
+        if self.probe.is_none() {
+            binding.network_generation = zero_core::component::NetworkGeneration(self.generation());
         }
         let business = self
             .probe
@@ -62,7 +65,7 @@ impl DirectOpener {
             .await
         {
             Ok(connection) => {
-                if binding.network_generation.0 != self.generation() {
+                if candidates.generation().0 != self.generation() {
                     return Err(invalid(
                         Reason::StalePlan,
                         "network changed during controlled Direct establishment",
