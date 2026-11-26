@@ -23,7 +23,9 @@ pub(super) fn configure(socket: &socket2::SockRef<'_>) -> std::io::Result<()> {
     #[cfg(target_vendor = "apple")]
     socket.set_nosigpipe(true)?;
     // Windows NO_HANDLE_INHERIT was set atomically in WSASocketW above.
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    crate::windows_socket::disable_udp_connreset(socket)?;
+    #[cfg(not(any(unix, windows)))]
     let _ = socket;
     Ok(())
 }

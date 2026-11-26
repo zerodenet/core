@@ -6,9 +6,15 @@ pub(crate) fn bind_source(
     mut source: SocketAddr,
     preferred_port: Option<u16>,
 ) -> io::Result<SocketAddr> {
+    #[cfg(windows)]
+    if preferred_port.is_some_and(|port| port != 0) {
+        crate::windows_socket::set_exclusive_addr_use(socket, true)?;
+    }
     match socket.bind(&source.into()) {
         Ok(()) => {}
         Err(error) if can_retry_port(preferred_port, &error) => {
+            #[cfg(windows)]
+            crate::windows_socket::set_exclusive_addr_use(socket, false)?;
             // A rejected bind leaves this original unbound. Change only the
             // preferred port, once; keep its address, family and socket options.
             source.set_port(0);

@@ -105,12 +105,14 @@ fn bind_native(
         socket2::Domain::IPV6
     };
     let socket = socket2::Socket::new(domain, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
+    let sock_ref = socket2::SockRef::from(&socket);
+    #[cfg(windows)]
+    crate::windows_socket::disable_udp_connreset(&sock_ref)?;
     if source.is_ipv6() && v6_only {
         // A v6 socket must not provide a mapped-v4 escape from only_ipv6.
         socket.set_only_v6(true)?;
     }
-    let source =
-        super::udp_bind::bind_source(&socket2::SockRef::from(&socket), source, preferred_port)?;
+    let source = super::udp_bind::bind_source(&sock_ref, source, preferred_port)?;
     Ok((socket.into(), source))
 }
 

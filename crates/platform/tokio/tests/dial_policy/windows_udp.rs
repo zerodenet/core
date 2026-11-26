@@ -172,3 +172,88 @@ async fn windows_controlled_exclusive_fallback_retains_one_original_and_consumes
         assert_eq!(held.local_addr().unwrap(), occupied);
     }
 }
+
+#[tokio::test]
+async fn windows_wildcard_preferred_port_falls_back_when_loopback_port_is_occupied_by_default_socket(
+) {
+    let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let occupied = client.local_addr().unwrap();
+    let echo = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let peer = echo.local_addr().unwrap();
+    let control = EgressInterfaceControl::default();
+    let policy = DialPolicy::default();
+    let selected = control.select_for_peer_with_policy(peer, &policy).unwrap();
+
+    let mut owner = ControlledDatagramOwner::new(NonZeroUsize::new(1).unwrap());
+    let outbound = owner
+        .acquire(peer, Some(occupied.port()), &policy, &selected)
+        .unwrap();
+    let native_control = owner.take_control(&outbound).unwrap();
+    assert_ne!(
+        outbound.local_addr().unwrap().port(),
+        occupied.port(),
+        "wildcard preferred-port bind must not overlap an active loopback socket"
+    );
+
+    outbound.send_to_addr(b"probe", peer).await.unwrap();
+    let mut buf = [0u8; 16];
+    let (read, sender) = tokio::time::timeout(Duration::from_secs(3), echo.recv_from(&mut buf))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&buf[..read], b"probe");
+    echo.send_to(b"echoed", sender).await.unwrap();
+
+    let (read, from) =
+        tokio::time::timeout(Duration::from_secs(3), outbound.recv_from_addr(&mut buf))
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(&buf[..read], b"echoed");
+    assert_eq!(from, peer);
+
+    let receipt = native_control.close().unwrap();
+    assert!(receipt.matches(&native_control));
+}
+
+#[tokio::test]
+async fn windows_udp_sockets_ignore_icmp_port_unreachable_connreset_on_subsequent_receives() {
+    let closed_peer = {
+        let ephemeral = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        ephemeral.local_addr().unwrap()
+    };
+    let live_peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let live_addr = live_peer.local_addr().unwrap();
+    let control = EgressInterfaceControl::default();
+    let policy = DialPolicy::default();
+    let selected = control
+        .select_for_peer_with_policy(live_addr, &policy)
+        .unwrap();
+
+    let mut owner = ControlledDatagramOwner::new(NonZeroUsize::new(1).unwrap());
+    let listener = owner.acquire(live_addr, None, &policy, &selected).unwrap();
+    let native_control = owner.take_control(&listener).unwrap();
+    let listener_addr = SocketAddr::new(
+        "127.0.0.1".parse().unwrap(),
+        listener.local_addr().unwrap().port(),
+    );
+
+    // Trigger loopback ICMP Port Unreachable (WSAECONNRESET without SIO_UDP_CONNRESET=FALSE).
+    listener
+        .send_to_addr(b"stale-ack", closed_peer)
+        .await
+        .unwrap();
+    live_peer.send_to(b"healthy", listener_addr).await.unwrap();
+
+    let mut buf = [0u8; 16];
+    let (read, from) =
+        tokio::time::timeout(Duration::from_secs(3), listener.recv_from_addr(&mut buf))
+            .await
+            .unwrap()
+            .expect("ICMP Port Unreachable must not poison subsequent UDP receives");
+    assert_eq!(&buf[..read], b"healthy");
+    assert_eq!(from, live_addr);
+
+    let receipt = native_control.close().unwrap();
+    assert!(receipt.matches(&native_control));
+}

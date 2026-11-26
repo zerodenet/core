@@ -1,7 +1,12 @@
 //! Direct native creation for preinstalled TCP/UDP owners. No dummy socket.
-use std::{io, os::windows::io::FromRawSocket, sync::OnceLock};
+use std::{
+    io,
+    os::windows::io::{AsRawSocket, FromRawSocket},
+    sync::OnceLock,
+};
 use windows_sys::Win32::Networking::WinSock::{
-    WSAGetLastError, WSASocketW, WSAStartup, AF_INET, AF_INET6, INVALID_SOCKET, WSADATA,
+    setsockopt, WSAGetLastError, WSAIoctl, WSASocketW, WSAStartup, AF_INET, AF_INET6,
+    INVALID_SOCKET, SIO_UDP_CONNRESET, SOCKET_ERROR, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, WSADATA,
     WSA_FLAG_NO_HANDLE_INHERIT, WSA_FLAG_OVERLAPPED,
 };
 
@@ -41,4 +46,53 @@ pub(crate) fn new(ipv4: bool, kind: i32, protocol: i32) -> io::Result<socket2::S
     // SAFETY: transfer the same uniquely owned SOCKET. No fallible work occurs
     // between creation and the caller's persistent-owner installation.
     Ok(unsafe { socket2::Socket::from_raw_socket(original as _) })
+}
+
+/// Suppress Winsock's `WSAECONNRESET` (10054) delivery on unconnected UDP
+/// sockets when a prior `sendto` encounters an ICMP Port Unreachable reply.
+pub(crate) fn disable_udp_connreset(socket: &socket2::SockRef<'_>) -> io::Result<()> {
+    let enable: u32 = 0;
+    let mut returned: u32 = 0;
+    // SAFETY: synchronous ioctl on a live UDP SOCKET with valid stack u32 I/O.
+    let rc = unsafe {
+        WSAIoctl(
+            socket.as_raw_socket() as _,
+            SIO_UDP_CONNRESET,
+            (&enable as *const u32).cast(),
+            std::mem::size_of::<u32>() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+            None,
+        )
+    };
+    if rc == SOCKET_ERROR {
+        return Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }));
+    }
+    Ok(())
+}
+
+/// Toggle `SO_EXCLUSIVEADDRUSE` before a preferred-port bind so a wildcard bind
+/// (`0.0.0.0:port`) cannot overlap an existing loopback/interface UDP socket on
+/// Windows and have its replies delivered to that other socket.
+pub(crate) fn set_exclusive_addr_use(
+    socket: &socket2::SockRef<'_>,
+    enabled: bool,
+) -> io::Result<()> {
+    let value: i32 = i32::from(enabled);
+    // SAFETY: synchronous setsockopt on a live unbound SOCKET with valid i32.
+    let rc = unsafe {
+        setsockopt(
+            socket.as_raw_socket() as _,
+            SOL_SOCKET,
+            SO_EXCLUSIVEADDRUSE,
+            (&value as *const i32).cast(),
+            std::mem::size_of::<i32>() as i32,
+        )
+    };
+    if rc == SOCKET_ERROR {
+        return Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }));
+    }
+    Ok(())
 }
