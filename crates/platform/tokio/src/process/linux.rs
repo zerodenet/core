@@ -64,21 +64,56 @@ fn find(
         }
         let mut descriptors = directory::Cursor::new(limit)?;
         let mut found = false;
-        while let Some(name) = descriptors.next(originals, DESCRIPTORS)? {
+        loop {
+            let name = match descriptors.next(originals, DESCRIPTORS) {
+                Ok(Some(name)) => name,
+                Ok(None) => break,
+                Err(source)
+                    if source.reason == Reason::Capacity || source.stage == Stage::Close =>
+                {
+                    return Err(source);
+                }
+                // Another process can exit between open(/proc/<pid>/fd) and
+                // getdents64; skip that exited process instead of aborting scan.
+                Err(_) => break,
+            };
             if original.cancelled() {
                 break;
             }
-            if let Some(link) = read_link(&path.join(name), limit)? {
-                if link == target {
+            match read_link(&path.join(name), limit) {
+                Ok(Some(link)) if link == target => {
                     found = true;
                     break;
                 }
+                Ok(_) => {}
+                Err(source)
+                    if source.reason == Reason::Capacity || source.stage == Stage::Close =>
+                {
+                    return Err(source);
+                }
+                Err(_) => {}
             }
         }
         originals.close(DESCRIPTORS)?;
         if found {
-            let name = table::name(originals, pid, limit)?;
-            let path = read_link(&PathBuf::from(format!("/proc/{pid}/exe")), limit)?;
+            let name = match table::name(originals, pid, limit) {
+                Ok(name) => name,
+                Err(source)
+                    if source.reason == Reason::Capacity || source.stage == Stage::Close =>
+                {
+                    return Err(source);
+                }
+                Err(_) => None,
+            };
+            let path = match read_link(&PathBuf::from(format!("/proc/{pid}/exe")), limit) {
+                Ok(path) => path,
+                Err(source)
+                    if source.reason == Reason::Capacity || source.stage == Stage::Close =>
+                {
+                    return Err(source);
+                }
+                Err(_) => None,
+            };
             return Ok(Some(LocalProcessInfo { pid, name, path }));
         }
     }

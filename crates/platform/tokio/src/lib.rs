@@ -81,6 +81,8 @@ pub use egress::{
     EgressBindingReason, EgressFamilySnapshot, EgressInterface, EgressInterfaceControl,
     EgressReadObservation, EgressRouteLookupStatus, EgressSelection,
 };
+#[doc(hidden)]
+pub use process::proc_net;
 pub use process::{
     LocalProcessInfo, LocalProcessLookup, LocalProcessLookupStart, LocalProcessTransport,
 };

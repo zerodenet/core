@@ -115,24 +115,26 @@ pub(super) fn inode(
         let mut lines = Lines::new(limit);
         let mut header = true;
         let port = format!("{:04X}", source.port());
+        let mut wildcard_inode = None;
         while let Some(line) = lines.next(originals)? {
             if header {
                 header = false;
                 continue;
             }
-            let mut fields = line.split_whitespace();
-            let Some(local) = fields.nth(1) else {
+            // Kernel TIME_WAIT and orphan sockets remain in /proc/net/tcp with
+            // inode == 0 while the ephemeral local port is reused by new live
+            // 4-tuples. Skip zero inodes so active descriptors are still found.
+            let Some((exact, inode)) =
+                crate::process::proc_net::match_proc_net_row(&line, &ip, wildcard, &port)
+            else {
                 continue;
             };
-            let Some((local_ip, local_port)) = local.split_once(':') else {
-                continue;
-            };
-            if (local_ip != ip && local_ip != wildcard) || local_port != port {
-                continue;
+            if exact {
+                return Ok(Some(inode));
             }
-            return Ok(fields.nth(7).and_then(|inode| inode.parse().ok()));
+            wildcard_inode.get_or_insert(inode);
         }
-        Ok(None)
+        Ok(wildcard_inode)
     })();
     if let Err(source) = &result {
         originals.retain_operation_failure(source.clone());

@@ -137,3 +137,29 @@ async fn resolves_ipv6_tcp_and_udp_sources() {
     );
     caller.finish().await;
 }
+
+#[test]
+fn proc_net_matcher_skips_time_wait_zero_inodes_and_prefers_exact_ip_over_wildcard() {
+    use zero_platform_tokio::proc_net::match_proc_net_row;
+
+    let ip = "0100007F";
+    let wildcard = "00000000";
+    let port = "B26E";
+
+    let time_wait =
+        "  412: 0100007F:B26E 0100007F:8811 06 00000000:00000000 03:0000176F 00000000     0        0 0 3 0000000000000000";
+    let wildcard_listen =
+        "  500: 00000000:B26E 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 11111 1 0000000000000000 100 0 0 10 0";
+    let established =
+        " 1890: 0100007F:B26E 0100007F:9922 01 00000000:00000000 00:00000000 00000000  1001        0 482910 1 0000000000000000 20 4 30 10 -1";
+
+    assert_eq!(match_proc_net_row(time_wait, ip, wildcard, port), None);
+    assert_eq!(
+        match_proc_net_row(wildcard_listen, ip, wildcard, port),
+        Some((false, 11111))
+    );
+    assert_eq!(
+        match_proc_net_row(established, ip, wildcard, port),
+        Some((true, 482910))
+    );
+}

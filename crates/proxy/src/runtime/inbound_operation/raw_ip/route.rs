@@ -102,6 +102,15 @@ pub(super) async fn feed_inner_packet(
         );
         return;
     };
+    if let Some(policy) = tun {
+        if !policy.supports_family(destination) {
+            traffic.drop_inner(
+                peer_identity.as_deref(),
+                zero_api::TrafficDropReason::PolicyRejected,
+            );
+            return;
+        }
+    }
     let protocol = packet::ip_protocol(&packet);
     if local_destination && packet::parse_icmp_echo_request(&packet).is_some() {
         if let Some(response) = packet::IcmpEchoPacketSpec::local(&packet, effective_mtu) {
@@ -126,6 +135,15 @@ pub(super) async fn feed_inner_packet(
             _ => {}
         }
         return;
+    }
+    if let Some(policy) = tun {
+        if !policy.permits_routed_destination(destination, local_destination) {
+            traffic.drop_inner(
+                peer_identity.as_deref(),
+                zero_api::TrafficDropReason::PolicyRejected,
+            );
+            return;
+        }
     }
     let candidates = route
         .packet_route_target(destination, protocol)
