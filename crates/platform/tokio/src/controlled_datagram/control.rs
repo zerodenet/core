@@ -114,6 +114,35 @@ impl ControlledDatagramControl {
             })
         })
     }
+    /// Wait up to `deadline` for any in-progress creation or close lease before
+    /// executing or observing the original OS close receipt.
+    pub async fn wait_closed(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Option<Result<ControlledDatagramClosed, Arc<std_io::Error>>> {
+        self.entry.retire_io();
+        loop {
+            let changed = self.entry.source_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if !self.entry.creation_running.load(Ordering::Acquire) {
+                if let Some(claim) = NativeCloseClaim::acquire(&self.entry.close_running) {
+                    let _claim = claim.notify_on_release(&self.entry.source_changed);
+                    return Some(self.entry.close_locked(self.entry.lock()).map(|_| {
+                        ControlledDatagramClosed {
+                            entry: self.entry.clone(),
+                        }
+                    }));
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+            if tokio::time::timeout_at(deadline, changed).await.is_err() {
+                return None;
+            }
+        }
+    }
     /// Pure nonblocking state observation. This issues neither close nor join
     /// evidence and preserves the actual original Unknown source Arc.
     pub fn observe(&self) -> DatagramControlObservation {

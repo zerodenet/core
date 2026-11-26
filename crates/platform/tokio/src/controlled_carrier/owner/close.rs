@@ -248,7 +248,7 @@ async fn close_slot_until(
             }
             report
         } else if let Some(control) = packet {
-            match control.try_close() {
+            match control.wait_closed(deadline).await {
                 Some(Ok(receipt)) if receipt.matches(&control) => CloseReport {
                     closed_io: vec![slot.label()],
                     ..Default::default()
@@ -281,10 +281,9 @@ async fn close_slot_until(
                 let mut state = slot.state();
                 // Persist the original native report before waiting for external
                 // callers. Cancelled cleanup never loses or fabricates that proof.
-                state.closed = true;
+                slot.mark_closed(&mut state);
                 state.pending_close = Some(report);
             }
-            slot.confirm_native_closed();
             slot.notify();
             continue;
         }

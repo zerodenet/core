@@ -169,3 +169,76 @@ async fn same_native_loan_observes_late_actual_close_and_ack_after_original_help
     .await
     .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_cancelled_retirement_and_loan_close_always_confirm_origin_close() {
+    timeout(Duration::from_secs(6), async {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let remote = peer.local_addr().unwrap();
+        let endpoint = destination(remote);
+        let egress = Arc::new(crate::EgressInterfaceControl::default());
+        let binding = UpstreamBinding {
+            prefix: vec![],
+            dial: zero_traits::DialPolicy {
+                source_ip: Some("127.0.0.1".parse().unwrap()),
+                ..Default::default()
+            },
+            network_generation: NetworkGeneration(egress.generation()),
+        };
+        let opener =
+            NativeCarrierOpener::new(instance(), binding.clone(), remote, egress, None).unwrap();
+        let scope = TaskScope::empty(tokio::runtime::Handle::current());
+        let mut owner = CarrierOwner::new(
+            instance(),
+            NonZeroUsize::new(1).unwrap(),
+            &CancellationToken::new(),
+        );
+        let registration = owner.registration();
+        registration
+            .bind_declared(
+                &ResourceDeclaration::ControlledDatagramCarrier {
+                    endpoint: endpoint.clone(),
+                    binding: binding.clone(),
+                    max_sockets: NonZeroUsize::new(1).unwrap(),
+                },
+                &scope.registrar(),
+                &Arc::new(CancellationToken::new()),
+            )
+            .unwrap();
+        owner.start(deadline()).await.unwrap();
+        for ordinal in 0..64 {
+            let mut grant = owner.grants().reserve().unwrap();
+            let view = grant.claim_transferred_view().unwrap();
+            let native = opener
+                .prepare_controlled_datagram(&binding, endpoint.clone(), context(), grant)
+                .unwrap();
+            let mut loan = native
+                .into_datagram_loan(view, AssociationId(ordinal))
+                .unwrap();
+            drop(loan.io);
+            let observer = registration.clone();
+            let supervisor = tokio::spawn(async move {
+                poll_fn(|cx| {
+                    let _ = observer.poll_cancelled_retirements(cx, Duration::from_secs(2));
+                    Poll::Ready(())
+                })
+                .await;
+            });
+            let report = loan.owner.close(deadline()).await.unwrap();
+            supervisor.await.unwrap();
+            assert!(report.is_complete());
+            let logical = loan.owner.closed().expect("logical loan closed");
+            assert!(logical.matches(&loan.owner));
+            let closed = loan
+                .owner
+                .original()
+                .closed()
+                .expect("origin completion published before loan close returns");
+            assert!(closed.matches(loan.owner.original()));
+            assert!(closed.had_native_acquisition());
+        }
+        assert!(owner.shutdown(deadline()).await.unwrap().is_complete());
+    })
+    .await
+    .unwrap();
+}

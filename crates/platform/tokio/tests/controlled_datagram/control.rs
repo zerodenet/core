@@ -173,3 +173,43 @@ async fn native_fault_received_after_actual_close_still_requires_root_handoff_an
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn wait_closed_awaits_in_progress_close_lease_until_release_or_deadline() {
+    use std::future::Future;
+    let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let peer = target.local_addr().unwrap();
+    let selected = EgressInterfaceControl::default()
+        .select_for_peer_with_policy(peer, &DialPolicy::default())
+        .unwrap();
+    let mut owner = ControlledDatagramOwner::new(NonZeroUsize::new(1).unwrap());
+    let socket = owner
+        .acquire(peer, None, &DialPolicy::default(), &selected)
+        .unwrap();
+    let local = socket.local_addr().unwrap();
+    let control = owner.take_control(&socket).unwrap();
+    let claim = super::super::NativeCloseClaim::acquire(&control.entry.close_running)
+        .unwrap()
+        .notify_on_release(&control.entry.source_changed);
+    assert!(control.try_close().is_none());
+    assert!(control
+        .wait_closed(tokio::time::Instant::now() + std::time::Duration::from_millis(10))
+        .await
+        .is_none());
+    assert!(!control.observe().native_closed);
+    let mut waiting = Box::pin(
+        control.wait_closed(tokio::time::Instant::now() + std::time::Duration::from_secs(2)),
+    );
+    std::future::poll_fn(|cx| {
+        assert!(waiting.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(claim);
+    let receipt = waiting.await.expect("close completed").expect("OS close");
+    assert!(receipt.matches(&control));
+    assert!(control.observe().native_closed);
+    drop(socket);
+    assert_eq!(owner.occupied(), 0);
+    let _rebound = tokio::net::UdpSocket::bind(local).await.unwrap();
+}

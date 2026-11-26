@@ -124,10 +124,9 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
         }
         report.released_resources.push(slot.label());
         let mut state = slot.state();
-        state.closed = true;
+        slot.mark_closed(&mut state);
         state.pending_close = Some(report);
         drop(state);
-        slot.confirm_native_closed();
         slot.notify();
         // Keep the actual report for the later full native/users settlement.
         Ok(Default::default())

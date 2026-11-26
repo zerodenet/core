@@ -103,6 +103,16 @@ impl Slot {
     pub(super) fn notify(&self) {
         self.changed.notify_waiters();
     }
+    pub(super) fn mark_closed(&self, state: &mut State) {
+        state.closed = true;
+        let native = state.control.is_some()
+            || state.packet.is_some()
+            || matches!(
+                state.packet_disposition,
+                Some(crate::controlled_datagram::AcquisitionOutcome::Closed(_))
+            );
+        let _ = self.completion.set(native);
+    }
     pub(super) fn confirm_native_closed(&self) {
         let state = self.state();
         assert!(
@@ -182,7 +192,7 @@ impl Slot {
                     .as_ref()
                     .is_none_or(|users| !users.live() && !users.acquired())
             {
-                state.closed = true;
+                self.mark_closed(&mut state);
                 true
             } else {
                 false

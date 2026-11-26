@@ -161,7 +161,7 @@ impl NativeCarrierOpener {
                 let mut state = grant.slot.state();
                 state.packet_disposition = Some(outcome);
                 if settled {
-                    state.closed = true;
+                    grant.slot.mark_closed(&mut state);
                     state.pending_close = Some(crate::contract::lifecycle::CloseReport {
                         closed_io: if matches!(outcome, AcquisitionOutcome::Closed(_)) {
                             vec![grant.slot.label()]

@@ -80,7 +80,7 @@ impl CarrierAdoption {
         self.slot.state().endpoints.clone()
     }
     pub fn closed(&self) -> Option<CarrierClosed> {
-        self.slot.state().closed.then(|| CarrierClosed {
+        (self.slot.state().closed && self.slot.completion.get().is_some()).then(|| CarrierClosed {
             slot: self.slot.clone(),
         })
     }

@@ -41,8 +41,10 @@ impl LoanOwner {
 }
 fn fully_closed(actual: &CarrierAdoption) -> bool {
     actual.closed().is_some_and(|same| same.matches(actual))
+        && actual.slot.completion.get().is_some()
         && actual
             .users_closed()
             .is_some_and(|same| same.matches(actual))
+        && crate::controlled_carrier::caller_credit::released(&actual.slot)
         && actual.packet_driver_registrations_released()
 }
