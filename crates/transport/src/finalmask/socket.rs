@@ -27,7 +27,7 @@ impl std::fmt::Debug for Socket {
     }
 }
 impl Socket {
-    #[cfg(all(feature = "mkcp", feature = "quic"))]
+    #[cfg(feature = "quic")]
     pub(super) fn prepare_codec(
         inner: Arc<dyn AsyncUdpSocket>,
         codec: Codec,

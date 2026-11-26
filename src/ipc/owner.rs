@@ -124,6 +124,8 @@ mod completion_tests;
 mod tests;
 
 mod report;
+#[cfg(unix)]
+pub(crate) use report::ReportObservation;
 pub(crate) use report::ReportReceiver;
 
 /// Preserve a caught work panic together with real child cleanup errors. With

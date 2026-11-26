@@ -1,16 +1,16 @@
 //! Inert server decorators. The actual carrier owner starts their original I/O
 //! futures in its existing driver ledger; preparation never spawns a task.
 use super::udp::Mask;
-#[cfg(all(feature = "mkcp", feature = "quic"))]
+#[cfg(feature = "quic")]
 use super::Socket;
-#[cfg(all(feature = "mkcp", feature = "quic"))]
+#[cfg(feature = "quic")]
 use crate::datagram_driver::PreparedIoDriver;
-#[cfg(all(feature = "mkcp", feature = "quic"))]
+#[cfg(feature = "quic")]
 use quinn::AsyncUdpSocket;
 use std::io;
-#[cfg(all(feature = "mkcp", feature = "quic"))]
+#[cfg(feature = "quic")]
 use std::sync::Arc;
-#[cfg(all(feature = "mkcp", feature = "quic"))]
+#[cfg(feature = "quic")]
 use zero_platform_tokio::controlled_icmp::ControlledIcmpSocket;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DriverKind {
@@ -18,20 +18,20 @@ pub enum DriverKind {
     Xdns,
     Xicmp,
 }
-#[cfg(all(feature = "mkcp", feature = "quic"))]
+#[cfg(feature = "quic")]
 pub(crate) struct Driver {
     pub(crate) kind: DriverKind,
     pub(crate) ordinal: u8,
     pub(crate) work: PreparedIoDriver,
 }
-#[cfg(all(feature = "mkcp", feature = "quic"))]
+#[cfg(feature = "quic")]
 pub(crate) struct Prepared {
     pub(crate) socket: Arc<dyn AsyncUdpSocket>,
     pub(crate) drivers: Vec<Driver>,
 }
-#[cfg(all(feature = "mkcp", feature = "quic"))]
+#[cfg(feature = "quic")]
 mod plan;
-#[cfg(all(feature = "mkcp", feature = "quic"))]
+#[cfg(feature = "quic")]
 pub use plan::PreparedMasks;
 pub fn validate(masks: &[Mask]) -> io::Result<()> {
     super::udp::validate(masks)

@@ -32,7 +32,6 @@ impl PacketSegment {
     }
 }
 impl PacketIdentity {
-    #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     pub(in crate::quic::owned) fn names_endpoint(&self, actual: &EndpointDrivers) -> bool {
         self.endpoint
             .lock()
