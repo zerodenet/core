@@ -128,16 +128,13 @@ impl Running {
                         }
                         Err(error) => {
                             let closed_probe = original.close_probe(end()).await.unwrap();
-                            if !actual.endpoint_is_running()
-                                || error.kind() == std::io::ErrorKind::PermissionDenied
-                            {
+                            if !actual.endpoint_is_running() || closed_probe.is_none() {
                                 if let Some(ready) = ready.take() {
                                     let _ = ready.send(Err(error.to_string()));
                                 }
                                 break;
                             }
                             assert!(Instant::now() < deadline, "{error}");
-                            assert!(closed_probe.is_some());
                             if let Ok(status) = tokio::time::timeout(
                                 Duration::from_millis(5),
                                 actual.wait_root_exit(),
