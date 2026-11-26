@@ -232,6 +232,7 @@ impl ProtocolInventory {
         services: crate::protocol_registry::TcpRuntimeServices,
         cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> Result<crate::adapters::devices::PreparedDevices, EngineError> {
+        #[cfg(feature = "peer-raw-ip-runtime")]
         use std::sync::Arc;
 
         let admission = zero_engine::EndpointAdmission::from_snapshot(services.snapshot());
@@ -240,15 +241,19 @@ impl ProtocolInventory {
             .components
             .as_deref()
             .map_err(|source| EngineError::Io(std::io::Error::other(source.clone())))?;
+        #[cfg(feature = "peer-raw-ip-runtime")]
         let packet_paths = self.prepare_device_packet_paths(
             config,
             &admission,
             zero_core::component::NetworkGeneration(services.upstream().egress_generation()),
             Some(components),
         )?;
+        #[cfg(not(feature = "peer-raw-ip-runtime"))]
+        let _ = components;
         let context = crate::adapters::devices::OutboundDevicePreparationContext {
             direct_packet_device: config.runtime.network.direct_packet_device.clone(),
             mtu: config.runtime.network.mtu,
+            #[cfg(feature = "peer-raw-ip-runtime")]
             stack_options: crate::runtime::raw_ip::RawIpStackOptions::from_config_with_packet_root(
                 &config.runtime.network.udp_receive_queue,
                 self.devices.packet_return_totals.clone(),
@@ -283,9 +288,11 @@ impl ProtocolInventory {
                 config.runtime.effective_packet_return_total_max_frames(),
                 config.runtime.effective_packet_return_total_max_bytes(),
             ),
+            #[cfg(feature = "peer-raw-ip-runtime")]
             network_generation: zero_core::component::NetworkGeneration(
                 services.upstream().egress_generation(),
             ),
+            #[cfg(feature = "peer-raw-ip-runtime")]
             packet_paths: Arc::new(packet_paths),
         };
         // Outer handshakes begin here, after the actual component originals

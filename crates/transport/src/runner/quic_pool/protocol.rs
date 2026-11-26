@@ -37,6 +37,9 @@ pub struct QuicPoolLimits {
     pub endpoint_users: NonZeroUsize,
 }
 
+/// Output of [`QuicPoolProtocol::finalize_session`].
+pub type FinalizedPoolSession<S> = Result<(Arc<S>, Option<TaskJoinWitness>), ChannelError>;
+
 /// Pure protocol customization surface for [`super::QuicPool`] and [`super::QuicPoolFactory`].
 pub trait QuicPoolProtocol: Send + Sync + 'static {
     type Profile: Clone + Send + Sync + 'static;
@@ -89,7 +92,7 @@ pub trait QuicPoolProtocol: Send + Sync + 'static {
         pending: Self::Pending,
         origin: Option<MetadataPoolOrigin>,
         dns_generation: Option<DnsGeneration>,
-    ) -> BoxFuture<'static, Result<(Arc<Self::Session>, Option<TaskJoinWitness>), ChannelError>>;
+    ) -> BoxFuture<'static, FinalizedPoolSession<Self::Session>>;
 
     fn is_session_ready(session: &Self::Session) -> bool;
 

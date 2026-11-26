@@ -101,6 +101,7 @@ impl Epoch {
             failed: AtomicBool::new(false),
         }))
     }
+    #[cfg(feature = "event-dispatcher")]
     pub(super) fn needs_retirement(&self) -> bool {
         self.closing.load(Ordering::Acquire)
             || self.failed.load(Ordering::Acquire)

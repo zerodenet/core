@@ -154,7 +154,7 @@ impl PluginPlan {
         self.acquire_with(
             tcp,
             probe,
-            |request| process::spawn_request(request).map(PluginChild::Library),
+            |request| process::spawn_request(request).map(|c| PluginChild::Library(Box::new(c))),
             false,
             None,
         )

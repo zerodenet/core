@@ -1,8 +1,8 @@
 //! Explicit same-original platform providers; no raw File or socket fallback.
 use super::*;
-use zero_platform_tokio::contract::{
-    lifecycle::ChannelControl, scope::TaskRegistrar, CancellationToken,
-};
+#[cfg(unix)]
+use zero_platform_tokio::contract::lifecycle::ChannelControl;
+use zero_platform_tokio::contract::{scope::TaskRegistrar, CancellationToken};
 #[cfg(windows)]
 use zero_platform_tokio::{ControlledPipe, ControlledPipeOwner};
 #[cfg(unix)]
@@ -63,7 +63,7 @@ impl Native {
     pub(super) async fn close(
         &mut self,
         end: tokio::time::Instant,
-        errors: &owner::Faults,
+        #[cfg_attr(not(unix), allow(unused_variables))] errors: &owner::Faults,
     ) -> io::Result<bool> {
         match self {
             Self::Cold => Ok(true),

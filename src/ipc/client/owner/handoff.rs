@@ -78,7 +78,7 @@ impl std::error::Error for Handoff {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl Handoff {
     pub(super) fn retained_tasks(&self) -> Option<&ClientFaults> {
         self.cleanup

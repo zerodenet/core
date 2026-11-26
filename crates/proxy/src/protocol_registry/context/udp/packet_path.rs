@@ -9,6 +9,7 @@ pub(crate) struct PacketPathExecutionServices {
     >,
     pub(super) tcp: TcpExecutionServices,
     pub(super) network: UdpNetworkServices,
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(super) receive:
         Option<crate::component::background::packet_driver::PacketCodecReceiveGroups>,
 }
@@ -45,6 +46,7 @@ impl PacketPathExecutionServices {
     pub(crate) fn has_packet_driver_caller(&self) -> bool {
         self.driver.is_some()
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn with_packet_driver_receive(
         mut self,
         receive: crate::component::background::packet_driver::PacketCodecReceiveGroups,
@@ -52,6 +54,7 @@ impl PacketPathExecutionServices {
         self.receive = Some(receive);
         self
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn packet_codec_receive(
         &self,
         index: usize,
@@ -72,6 +75,7 @@ impl PacketPathExecutionServices {
                     .into()
             })
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn with_packet_driver(
         mut self,
         actual: std::sync::Arc<
@@ -106,10 +110,12 @@ impl PacketPathExecutionServices {
         self
     }
 
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     pub(crate) fn from_tcp_execution(services: &TcpExecutionServices) -> Self {
         Self {
             driver: None,
             packet_target: None,
+            #[cfg(feature = "peer-raw-ip-runtime")]
             receive: None,
             tcp: services.clone(),
             network: UdpNetworkServices::from_tcp_execution(services),

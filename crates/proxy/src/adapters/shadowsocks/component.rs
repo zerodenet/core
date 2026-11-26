@@ -28,6 +28,7 @@ pub(crate) fn packet_input(input: &OutboundConfig) -> bool {
     matches!(&input.protocol, OutboundProtocolConfig::Shadowsocks { plugin, .. }
         if plugin.as_ref().is_none_or(|plugin| !plugin.mode.udp()))
 }
+#[cfg(any(feature = "peer-raw-ip-runtime", test))]
 pub(crate) fn registered_input(input: &OutboundConfig) -> bool {
     stream_input(input) || packet_input(input)
 }

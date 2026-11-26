@@ -3,6 +3,7 @@ use zero_engine::EngineError;
 
 #[async_trait::async_trait]
 pub(crate) trait ManagedTupleUdpFlowConnection: Send + Sync + 'static {
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn is_closed(&self) -> bool {
         false
     }

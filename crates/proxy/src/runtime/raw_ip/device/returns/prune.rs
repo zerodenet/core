@@ -1,6 +1,7 @@
 //! Detach ONE retired row, release ALL owner locks, then drop its original.
 use super::*;
 impl PacketReturns {
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     pub(super) fn prune_registration(
         &self,
         source: IpAddr,

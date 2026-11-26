@@ -13,6 +13,7 @@ mod tests;
 
 /// Storage from the actual caller, with no implicit unbudgeted execution mode.
 pub(crate) enum CodecMemory {
+    #[cfg(feature = "peer-raw-ip-runtime")]
     Source(crate::protocol_registry::packet_memory::PacketCodecReceiveMemory),
     Business(crate::protocol_registry::packet_memory::business::BusinessMemory),
     #[cfg(test)]
@@ -62,6 +63,7 @@ impl PacketPathCarrier for Encoded {
     > {
         self.path.prepare_codec_send(lengths)
     }
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     fn codec_transmit_count(
         &self,
         target: &Address,
@@ -81,6 +83,7 @@ impl PacketPathCarrier for Encoded {
             )
             .ok_or_else(layout_error)
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn prepare_codec_lengths(
         &self,
         count: usize,
@@ -88,6 +91,7 @@ impl PacketPathCarrier for Encoded {
     {
         self.path.prepare_codec_lengths(count)
     }
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     fn codec_transmit_lengths(
         &self,
         target: &Address,
@@ -155,18 +159,21 @@ impl PacketPathCarrier for Encoded {
             .send_codec_buffered(&self.target, self.port, wire, remaining, copy)
             .await
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn request_driver_retirement(
         &self,
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
     ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
         self.path.request_driver_retirement(driver)
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn confirm_driver_handoff(
         &self,
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
     ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
         self.path.confirm_driver_handoff(driver)
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     async fn retire_driver_handoff(
         &self,
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
@@ -185,6 +192,7 @@ impl PacketPathCarrier for Encoded {
         payload: &[u8],
     ) -> Result<(), EngineError> {
         match &self.memory {
+            #[cfg(feature = "peer-raw-ip-runtime")]
             CodecMemory::Source(_) => {
                 let count = self.codec_transmit_count(target, port, payload.len())?;
                 let mut lengths = self.prepare_codec_lengths(count)?;

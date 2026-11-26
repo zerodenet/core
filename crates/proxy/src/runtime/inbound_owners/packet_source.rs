@@ -1,6 +1,6 @@
 //! Reuse only a live original Source whose full installed input is unchanged.
 use super::*;
-#[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+#[cfg(all(feature = "peer-raw-ip-runtime", feature = "datagram-route-runtime"))]
 type PacketDriverCandidate = Option<(
     Arc<zero_config::RuntimeConfig>,
     Arc<crate::component::catalog::ComponentPlan>,
@@ -73,7 +73,7 @@ impl InboundOwnerRegistry {
     }
 }
 
-#[cfg(feature = "datagram-route-runtime")]
+#[cfg(all(feature = "peer-raw-ip-runtime", feature = "datagram-route-runtime"))]
 impl InboundOwnerRegistry {
     pub(in crate::runtime) fn packet_driver_candidate(
         &self,

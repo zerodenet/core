@@ -38,6 +38,7 @@ impl PacketPathCarrier for Observed {
     > {
         self.path.prepare_codec_send(lengths)
     }
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     fn codec_transmit_count(
         &self,
         target: &Address,
@@ -46,6 +47,7 @@ impl PacketPathCarrier for Observed {
     ) -> Result<usize, EngineError> {
         self.path.codec_transmit_count(target, port, len)
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn prepare_codec_lengths(
         &self,
         count: usize,
@@ -53,6 +55,7 @@ impl PacketPathCarrier for Observed {
     {
         self.path.prepare_codec_lengths(count)
     }
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     fn codec_transmit_lengths(
         &self,
         target: &Address,
@@ -80,18 +83,21 @@ impl PacketPathCarrier for Observed {
         }
         result
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn request_driver_retirement(
         &self,
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
     ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
         self.path.request_driver_retirement(driver)
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn confirm_driver_handoff(
         &self,
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
     ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
         self.path.confirm_driver_handoff(driver)
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     async fn retire_driver_handoff(
         &self,
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,

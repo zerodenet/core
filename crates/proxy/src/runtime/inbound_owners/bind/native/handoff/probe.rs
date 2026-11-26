@@ -6,7 +6,7 @@ pub(super) struct Probe {
     remaining: usize,
     original: Option<ControlledTcpControl>,
     confirmed: usize,
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     gate: Option<Arc<Gate>>,
 }
 #[derive(Debug)]
@@ -27,7 +27,7 @@ impl Probe {
             remaining: attempts.get(),
             original: None,
             confirmed: 0,
-            #[cfg(test)]
+            #[cfg(all(test, unix))]
             gate: None,
         }
     }
@@ -77,7 +77,7 @@ impl Probe {
         let result = {
             let connecting = pending.connect(deadline);
             tokio::pin!(connecting);
-            #[cfg(test)]
+            #[cfg(all(test, unix))]
             let first = if let Some(gate) = &self.gate {
                 use std::{
                     future::{poll_fn, Future},
@@ -97,7 +97,7 @@ impl Probe {
             } else {
                 None
             };
-            #[cfg(not(test))]
+            #[cfg(not(all(test, unix)))]
             let first = None;
             match first {
                 Some(result) => result,
@@ -145,14 +145,14 @@ impl Probe {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[derive(Default)]
 pub(crate) struct Gate {
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
     pending: std::sync::atomic::AtomicBool,
 }
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl Gate {
     pub(crate) async fn entered(&self) {
         tokio::time::timeout(std::time::Duration::from_secs(5), self.entered.notified())
@@ -164,7 +164,7 @@ impl Gate {
         );
     }
 }
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl Probe {
     pub(super) fn pause(&mut self) -> Arc<Gate> {
         let gate = Arc::new(Gate::default());

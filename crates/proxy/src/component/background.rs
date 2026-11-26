@@ -20,7 +20,7 @@ use zero_platform_tokio::{
 
 #[cfg(feature = "tls-ech-runtime")]
 pub(crate) mod grpc;
-#[cfg(feature = "raw-ip-runtime")]
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) mod packet_driver;
 mod pending;
 pub(crate) mod pool;
@@ -45,7 +45,7 @@ impl BackgroundNetwork {
             )
         })
     }
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn packet_driver_execution(
         &self,
         grant: zero_platform_tokio::contract::component::GrantedPacketServiceCaller,

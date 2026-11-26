@@ -17,7 +17,7 @@ mod tests;
     )
 ))]
 pub(crate) use connection::ManagedTupleUdpFlowConnection;
-#[cfg(all(test, feature = "raw-ip-runtime"))]
+#[cfg(all(test, feature = "peer-raw-ip-runtime"))]
 #[path = "../../packet_flow/tests/bridge/udp_flow.rs"]
 pub(crate) mod packet;
 #[cfg(all(test, feature = "managed-stream-runtime"))]

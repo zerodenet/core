@@ -17,6 +17,5 @@ pub use unix::{
 };
 #[cfg(windows)]
 pub use windows::{
-    default_socket_path as default_ipc_path, prepare_ipc_server_with_budget,
-    resolve_socket_path as resolve_ipc_path, IpcServerHandle,
+    prepare_ipc_server_with_budget, resolve_socket_path as resolve_ipc_path, IpcServerHandle,
 };

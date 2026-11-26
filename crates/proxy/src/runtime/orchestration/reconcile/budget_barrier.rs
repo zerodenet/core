@@ -416,7 +416,7 @@ pub(super) async fn pause_sources<'a>(
     } else {
         Vec::new()
     };
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(feature = "peer-raw-ip-runtime")]
     for (device, origin) in proxy.protocols.actual_packet_flow_sources(previous)? {
         let affected = packet_changed
             || carrier_changed

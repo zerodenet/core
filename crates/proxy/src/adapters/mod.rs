@@ -13,7 +13,7 @@ pub(crate) mod metadata;
 pub(crate) mod mieru;
 #[cfg(feature = "mixed")]
 pub(crate) mod mixed;
-#[cfg(any(feature = "wireguard", test))]
+#[cfg(any(feature = "peer-raw-ip-runtime", test))]
 pub(crate) mod mux_prefix;
 pub(crate) mod node_dns;
 pub(crate) mod security_budgets;

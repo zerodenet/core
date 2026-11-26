@@ -10,9 +10,10 @@ fn end() -> Instant {
     Instant::now() + Duration::from_secs(2)
 }
 fn scope(max: usize) -> (HostedScope, Arc<crate::HostOriginalBudgets>) {
-    let mut roots = crate::HostOriginalBudgets::default();
-    roots.component_tasks = TaskRegistrationBudget::new(NonZeroUsize::new(max).unwrap());
-    let roots = Arc::new(roots);
+    let roots = Arc::new(crate::HostOriginalBudgets {
+        component_tasks: TaskRegistrationBudget::new(NonZeroUsize::new(max).unwrap()),
+        ..Default::default()
+    });
     let mut scope =
         TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(2));
     scope

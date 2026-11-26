@@ -27,7 +27,8 @@ impl PacketReturns {
             conversation,
         )
     }
-    pub(in crate::runtime::raw_ip::device) fn register_source(
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
+    pub(in crate::runtime::raw_ip) fn register_source(
         &self,
         source: IpAddr,
         ingress_id: ReturnSource,
@@ -140,6 +141,7 @@ impl PacketReturns {
         Ok(())
     }
 }
+#[cfg(any(feature = "peer-raw-ip-runtime", test))]
 fn table_capacity(source: zero_tun::packet_memory::PacketMemoryError) -> io::Error {
     io::Error::new(io::ErrorKind::WouldBlock, source)
 }

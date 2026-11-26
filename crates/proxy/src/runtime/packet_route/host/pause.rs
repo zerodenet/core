@@ -210,6 +210,7 @@ impl NativeDeviceFenced {
 }
 
 impl Checkpoint {
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn matches_driver(&self, actual: &TaskJoinWitness) -> bool {
         self.original
             .actual

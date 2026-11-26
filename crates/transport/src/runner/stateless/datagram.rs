@@ -14,6 +14,9 @@ use zero_platform_tokio::contract::{
     ChannelError,
 };
 
+/// Result of [`DatagramProtocolHandshake::handshake_datagram`].
+pub type OpenedStatelessDatagram<Tx, Rx, C> = Result<DatagramSession<Tx, Rx, C>, ChannelError>;
+
 /// Optional pure datagram-over-stream protocol handshake plugged into
 /// [`super::StatelessOutboundFactory`].
 pub trait DatagramProtocolHandshake<O: StatelessOutboundOptions>:
@@ -35,6 +38,7 @@ pub trait DatagramProtocolHandshake<O: StatelessOutboundOptions>:
         request: &DatagramRequest,
     ) -> Result<Self::Prepared, HandshakeError>;
 
+    #[allow(clippy::too_many_arguments)]
     fn handshake_datagram(
         &self,
         options: &O,
@@ -44,8 +48,7 @@ pub trait DatagramProtocolHandshake<O: StatelessOutboundOptions>:
         context: OpenContext,
         admission: Arc<SessionAdmission>,
         session: Option<zero_core::component::SessionId>,
-    ) -> impl Future<Output = Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError>>
-           + Send;
+    ) -> impl Future<Output = OpenedStatelessDatagram<Self::Tx, Self::Rx, Self::Control>> + Send;
 }
 
 /// Marker for stream-only stateless outbounds without a datagram role.

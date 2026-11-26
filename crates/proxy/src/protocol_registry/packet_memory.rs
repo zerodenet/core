@@ -1,7 +1,10 @@
 //! Actual Source-declared codec buffers, not another allocator or IO provider.
+#[cfg(feature = "peer-raw-ip-runtime")]
 use zero_engine::EngineError;
+#[cfg(feature = "peer-raw-ip-runtime")]
 use zero_tun::packet_memory::NativeReadGrant;
 pub(crate) mod business;
+#[cfg(feature = "peer-raw-ip-runtime")]
 #[derive(Clone)]
 pub(crate) struct PacketCodecReceiveMemory {
     wire: NativeReadGrant,
@@ -9,11 +12,13 @@ pub(crate) struct PacketCodecReceiveMemory {
 }
 // Both real protocol layouts are finite and inline. Cloning moves only their
 // original grant handles; it never allocates a second array or read provider.
+#[cfg(feature = "peer-raw-ip-runtime")]
 #[derive(Clone)]
 enum ReceiveWorkspaces {
     One(NativeReadGrant),
     Two([NativeReadGrant; 2]),
 }
+#[cfg(feature = "peer-raw-ip-runtime")]
 impl ReceiveWorkspaces {
     fn as_slice(&self) -> &[NativeReadGrant] {
         match self {
@@ -22,6 +27,7 @@ impl ReceiveWorkspaces {
         }
     }
 }
+#[cfg(feature = "peer-raw-ip-runtime")]
 impl PacketCodecReceiveMemory {
     pub(crate) fn from_declared(
         wire: NativeReadGrant,
@@ -122,6 +128,7 @@ impl PacketCodecReceiveMemory {
         }
     }
 }
+#[cfg(feature = "peer-raw-ip-runtime")]
 fn invalid() -> EngineError {
     std::io::Error::new(
         std::io::ErrorKind::InvalidInput,

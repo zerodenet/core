@@ -5,6 +5,7 @@ impl PacketReturns {
     /// This future stays in the same native wire loop's pending-frame slot.
     /// Full return credit or queue capacity pauses RX, while that loop keeps TX
     /// and control progressing. The whole original stays owned during waiting.
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(super) async fn deliver_native_wait(
         &self,
         mut original: zero_traits::PacketBuffer,

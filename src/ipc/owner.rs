@@ -124,7 +124,7 @@ mod completion_tests;
 mod tests;
 
 mod report;
-pub(crate) use report::{ReportObservation, ReportReceiver};
+pub(crate) use report::ReportReceiver;
 
 /// Preserve a caught work panic together with real child cleanup errors. With
 /// no competing failure, resume the original payload so its parent join sees it.

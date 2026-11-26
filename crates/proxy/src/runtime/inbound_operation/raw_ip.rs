@@ -3,48 +3,56 @@
 
 mod children;
 mod icmp;
+#[cfg(feature = "peer-raw-ip-runtime")]
 mod lifecycle;
 mod limits;
 pub(crate) use limits::RawIpSourceLimits;
 pub(crate) mod native_obligations;
 mod observation;
+#[cfg(feature = "peer-raw-ip-runtime")]
 mod outer;
 mod route;
 mod run;
+#[cfg(feature = "peer-raw-ip-runtime")]
 mod socket;
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) mod source;
 mod stack_tasks;
 mod statistics;
 #[cfg(test)]
 #[path = "raw_ip/tests/udp_input.rs"]
 pub(crate) mod udp_input;
+#[cfg(feature = "peer-raw-ip-runtime")]
 mod wire;
 pub(in crate::runtime) use run::run;
 pub(crate) mod tasks;
 mod tcp;
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 use std::{
     net::{IpAddr, SocketAddr},
-    pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::atomic::{AtomicBool, Ordering},
+};
+use std::{
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
 use tokio::sync::{mpsc, watch};
 use zero_engine::EngineError;
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 use crate::runtime::raw_ip::{EndpointPacket, RawIpWireCarrier, SharedRawIpDevice};
 use crate::runtime::route_runtime::InboundListenerRuntime;
 pub(crate) use icmp::IcmpEchoRelay;
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) enum RawIpInboundAction {
     SendNetwork(zero_traits::PacketBuffer),
     ReceiveIp(zero_traits::PacketBuffer),
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) struct RawIpInboundDispatch {
     pub(crate) peer_index: Option<usize>,
     pub(crate) authenticated: bool,
@@ -53,6 +61,7 @@ pub(crate) struct RawIpInboundDispatch {
     pub(crate) source_rejected_packets: u64,
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) trait RawIpInboundDevice: Send {
     fn packet_memory_layout(
         &self,
@@ -223,13 +232,16 @@ impl PacketSourceContext {
         })
     }
 }
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) struct RawIpInboundEndpoint {
     pub(crate) packets: mpsc::Receiver<EndpointPacket>,
     pub(crate) peers: watch::Receiver<Arc<EndpointPeerState>>,
     pub(crate) lease: Arc<AtomicBool>,
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 type OuterMemoryLimits = Vec<Option<Arc<[Arc<[std::num::NonZeroUsize]>]>>>;
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) struct EndpointPeerState {
     pub(crate) revision: u64,
     pub(crate) devices: Vec<Arc<SharedRawIpDevice>>,
@@ -238,13 +250,14 @@ pub(crate) struct EndpointPeerState {
     pub(crate) outer_memory: OuterMemoryLimits,
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 impl Drop for RawIpInboundEndpoint {
     fn drop(&mut self) {
         self.lease.store(false, Ordering::Release);
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "peer-raw-ip-runtime"))]
 pub(crate) use lifecycle::retained_endpoint as retained_endpoint_for_test;
 
 #[cfg(test)]

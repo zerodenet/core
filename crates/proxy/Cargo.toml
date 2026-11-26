@@ -25,6 +25,7 @@ managed-udp-runtime = ["udp-runtime"]
 managed-datagram-runtime = ["managed-udp-runtime", "upstream-association-runtime", "zero-runtime/managed-datagram-runtime"]
 managed-stream-runtime = ["managed-udp-runtime", "udp-response-runtime"]
 raw-ip-runtime = ["zero-runtime/raw-ip-runtime", "zero-stack/packet-memory", "managed-datagram-runtime", "managed-stream-runtime", "tcp-session-runtime", "dep:sha2"]
+peer-raw-ip-runtime = ["raw-ip-runtime"]
 upstream-association-runtime = ["udp-response-runtime"]
 tls-ech-runtime = ["zero-transport/tls", "zero-dns/udp", "zero-dns/doh"]
 browser-dialer-runtime = ["zero-transport/ws"]
@@ -105,7 +106,7 @@ mieru = [
     "dep:mieru",
     "mieru/runtime",
 ]
-wireguard = ["raw-ip-runtime", "datagram-route-runtime", "dep:sha2", "dep:wireguard", "wireguard/runtime"]
+wireguard = ["peer-raw-ip-runtime", "datagram-route-runtime", "dep:sha2", "dep:wireguard", "wireguard/runtime"]
 dns = ["zero-dns/udp", "zero-dns/doh", "zero-dns/dot", "zero-dns/doq", "zero-transport/quic", "dep:quinn"]
 
 [dependencies]

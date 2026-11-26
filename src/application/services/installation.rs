@@ -89,7 +89,7 @@ impl ApplicationServices {
                     state.continuation.clone(),
                 ),
             );
-            #[cfg(test)]
+            #[cfg(all(test, feature = "sink-jsonl"))]
             if let Some(pause) = state.preparation_pause.take() {
                 pause.prepared.notify_one();
                 pause

@@ -1,5 +1,7 @@
 //! Host extension database, loaded once with the standard library's precedence.
-use std::{collections::HashMap, io::BufRead, path::Path, sync::OnceLock};
+use std::{collections::HashMap, sync::OnceLock};
+#[cfg(any(unix, test))]
+use std::{io::BufRead, path::Path};
 
 #[derive(Default)]
 pub(super) struct Database {
@@ -35,6 +37,7 @@ impl Database {
             .or_else(|| self.folded.get(&extension.to_lowercase()))
             .map(String::as_str)
     }
+    #[cfg(any(unix, test))]
     fn globs(&mut self, input: impl BufRead) {
         for line in input.lines().map_while(Result::ok) {
             let fields: Vec<_> = line.split(':').collect();
@@ -53,6 +56,7 @@ impl Database {
             self.insert(extension, fields[1]);
         }
     }
+    #[cfg(any(unix, test))]
     fn types(&mut self, input: impl BufRead) {
         for line in input.lines().map_while(Result::ok) {
             let mut fields = line.split_whitespace();
@@ -64,6 +68,7 @@ impl Database {
             }
         }
     }
+    #[cfg(any(unix, test))]
     fn from_paths(globs: &[&Path], types: &[&Path]) -> Self {
         let mut db = Self::builtins();
         for path in globs {

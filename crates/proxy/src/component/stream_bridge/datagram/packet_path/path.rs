@@ -50,6 +50,7 @@ impl PacketPathCarrier for Path {
     ) -> Option<crate::component::datagram_retirement::DatagramRegistration> {
         self.registration.clone()
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn prepare_codec_lengths(
         &self,
         count: usize,
@@ -114,6 +115,7 @@ impl PacketPathCarrier for Path {
         Ok(())
     }
 
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn request_driver_retirement(
         &self,
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
@@ -134,6 +136,7 @@ impl PacketPathCarrier for Path {
         Ok(())
     }
 
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn confirm_driver_handoff(
         &self,
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
@@ -149,6 +152,7 @@ impl PacketPathCarrier for Path {
             .confirm_receiver(driver)
     }
 
+    #[cfg(feature = "peer-raw-ip-runtime")]
     async fn retire_driver_handoff(
         &self,
         driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,

@@ -33,6 +33,7 @@ pub(crate) async fn start_with_handoff(
 ) -> Listener {
     start_inner(proxy, inbound, handoff, |_| {}).await
 }
+#[cfg(feature = "wireguard")]
 pub(crate) async fn start_with_original(
     proxy: &Proxy,
     inbound: zero_config::InboundConfig,

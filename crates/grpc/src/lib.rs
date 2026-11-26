@@ -160,14 +160,12 @@ impl GrpcHandle {
     where
         H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
     {
-        self.start_original(
-            handle,
-            source::OriginalSource {
-                engine: Some(engine),
-                ..Default::default()
-            },
-        )
-        .await
+        #[allow(clippy::needless_update)]
+        let source = source::OriginalSource {
+            engine: Some(engine),
+            ..Default::default()
+        };
+        self.start_original(handle, source).await
     }
     /// Use this exact production Proxy's guarded state and its same Engine.
     #[cfg(feature = "proxy-control")]

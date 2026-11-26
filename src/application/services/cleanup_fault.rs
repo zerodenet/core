@@ -50,7 +50,7 @@ impl ApplicationServiceState {
         // list and does not erase an independent unresolved cleanup fence.
         self.cleanup_receivers.0[CleanupOwner::DispatcherClosed as usize] = Some(source);
     }
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sink-jsonl"))]
     pub(super) fn cleanup_receiver(&self, owner: CleanupOwner) -> Option<&OriginalError> {
         self.cleanup_receivers.0[owner as usize].as_ref()
     }

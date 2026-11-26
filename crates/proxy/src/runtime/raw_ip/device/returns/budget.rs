@@ -19,6 +19,7 @@ impl Default for ReturnBudget {
     }
 }
 impl ReturnBudget {
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(super) async fn changed(&self) {
         let local = self.0.changed.notified();
         let total = self.0.totals.notified();

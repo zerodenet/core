@@ -50,6 +50,7 @@ pub(super) struct Faults {
     abandoned: Mutex<Option<Arc<io::Error>>>,
 }
 impl Faults {
+    #[cfg(unix)]
     pub(super) fn native(&self, error: ChannelError) -> Arc<ChannelError> {
         // The provider canonical owns its late pure-source ledger. Re-observing
         // it must not append another wrapper on each retirement retry.

@@ -6,7 +6,7 @@ pub(crate) mod control;
 pub(crate) mod raw_ip;
 pub(in crate::runtime) mod source;
 
-#[cfg(feature = "raw-ip-runtime")]
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) use raw_ip::{
     EndpointPeerState, RawIpInboundAction, RawIpInboundDevice, RawIpInboundDispatch,
     RawIpInboundEndpoint,

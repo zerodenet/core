@@ -39,8 +39,7 @@ impl UdpRuntimeServices {
         self
     }
 
-    #[cfg(feature = "raw-ip-runtime")]
-    #[cfg(test)]
+    #[cfg(all(test, feature = "peer-raw-ip-runtime"))]
     pub(crate) fn outbound_inner_io(
         &self,
         tag: &str,
@@ -48,8 +47,7 @@ impl UdpRuntimeServices {
         crate::runtime::traffic_io::outbound(self.tcp.engine(), tag, zero_api::TrafficPlane::Inner)
     }
 
-    #[cfg(feature = "raw-ip-runtime")]
-    #[cfg(test)]
+    #[cfg(all(test, feature = "peer-raw-ip-runtime"))]
     pub(crate) fn bind_outbound_peer_flow(&self, session_id: u64, tag: &str, peer_id: &str) {
         self.tcp
             .engine
@@ -79,6 +77,7 @@ impl UdpRuntimeServices {
         PacketPathExecutionServices {
             driver: None,
             packet_target: None,
+            #[cfg(feature = "peer-raw-ip-runtime")]
             receive: None,
             tcp: self.tcp.execution(),
             network: self.network(),
@@ -103,8 +102,7 @@ impl UdpRuntimeServices {
             .map_err(Into::into)
     }
 
-    #[cfg(feature = "raw-ip-runtime")]
-    #[cfg(test)]
+    #[cfg(all(test, feature = "peer-raw-ip-runtime"))]
     pub(crate) async fn resolve_packet_targets(
         &self,
         session: &zero_core::Session,

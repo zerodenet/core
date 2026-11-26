@@ -19,6 +19,7 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
     ) -> Option<crate::component::datagram_retirement::DatagramRegistration> {
         None
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn confirm_driver_handoff(
         &self,
         _driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
@@ -32,6 +33,7 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
     /// Return this same failed carrier's logical views/control before its
     /// existing worker attempts a replacement. This is not whole-ancestor
     /// native closure and cannot substitute for Source Scope joins.
+    #[cfg(feature = "peer-raw-ip-runtime")]
     async fn retire_driver_handoff(
         &self,
         _driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
@@ -48,6 +50,7 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
     }
     /// Request cancellation only of this actual Source driver's installed
     /// logical loan. Its parent wire and shared native ancestor remain owned.
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn request_driver_retirement(
         &self,
         _: &zero_platform_tokio::contract::scope::TaskJoinWitness,
@@ -59,9 +62,11 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
         ))
     }
 
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     fn codec_transmit_count(&self, _: &Address, _: u16, _: usize) -> Result<usize, EngineError> {
         Ok(0)
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn prepare_codec_lengths(
         &self,
         _: usize,
@@ -73,6 +78,7 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
         )
         .into())
     }
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     fn codec_transmit_lengths(
         &self,
         _: &Address,

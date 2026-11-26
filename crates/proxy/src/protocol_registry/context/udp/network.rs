@@ -1,6 +1,7 @@
 //! The original UDP network projections, split without changing ownership.
 use super::*;
 impl UdpNetworkServices {
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     pub(crate) fn from_tcp_execution(services: &super::TcpExecutionServices) -> Self {
         Self {
             upstream: services.upstream(),

@@ -89,6 +89,7 @@ impl RolePacketPath {
         descriptor.cache_key = format!("standard-role-packet:{:x}", identity.finalize());
         descriptor
     }
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     pub(crate) fn binding(&self) -> &UpstreamBinding {
         &self.binding
     }
@@ -224,6 +225,7 @@ impl RolePacketPath {
                 }
             }
         };
+        #[cfg_attr(not(feature = "peer-raw-ip-runtime"), allow(unused_variables))]
         for (index, source) in self.formatters.iter().enumerate() {
             path = crate::runtime::udp_flow::packet_path_chain::carriers::observed::wrap(
                 path,
@@ -237,12 +239,22 @@ impl RolePacketPath {
             let memory = match &business {
                 Some(actual) => CodecMemory::Business(actual.clone()),
                 None => {
-                    CodecMemory::Source(services.packet_codec_receive(index)?.ok_or_else(|| {
-                        failure(invalid(
-                            Reason::Internal,
-                            "Source codec lost its original declared receive buffers",
-                        ))
-                    })?)
+                    #[cfg(feature = "peer-raw-ip-runtime")]
+                    {
+                        CodecMemory::Source(services.packet_codec_receive(index)?.ok_or_else(
+                            || {
+                                failure(invalid(
+                                    Reason::Internal,
+                                    "Source codec lost its original declared receive buffers",
+                                ))
+                            },
+                        )?)
+                    }
+                    #[cfg(not(feature = "peer-raw-ip-runtime"))]
+                    return Err(failure(invalid(
+                        Reason::Unsupported,
+                        "peer Packet driver runtime is not compiled",
+                    )));
                 }
             };
             path = encoded::wrap(path, source.clone(), memory);

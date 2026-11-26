@@ -14,7 +14,7 @@ pub(crate) struct PreparedHooks {
     retired: bool,
 }
 impl PreparedHooks {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn originals_for_test(&self) -> &[Arc<ipc::IpcFlowHook>] {
         &self.originals
     }

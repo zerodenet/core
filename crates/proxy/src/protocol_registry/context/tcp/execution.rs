@@ -128,8 +128,7 @@ impl TcpExecutionServices {
         self.upstream.connect_upstream_owned(server, port).await
     }
 
-    #[cfg(feature = "raw-ip-runtime")]
-    #[cfg(test)]
+    #[cfg(all(test, feature = "peer-raw-ip-runtime"))]
     pub(crate) async fn resolve_packet_targets(
         &self,
         session: &zero_core::Session,

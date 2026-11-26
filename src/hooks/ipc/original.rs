@@ -18,9 +18,9 @@ pub(super) struct IpcOriginal {
 struct State {
     original: Option<OriginalLocalStream>,
     failure: Option<Arc<io::Error>>,
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     native_closed: usize,
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     empty_closed: usize,
 }
 pub(super) struct Call<T> {
@@ -83,7 +83,7 @@ impl IpcOriginal {
         if let Some(original) = state.original.as_mut() {
             match original.close() {
                 Ok(receipt) if original.matches_closed(&receipt) => {
-                    #[cfg(test)]
+                    #[cfg(all(test, unix))]
                     {
                         if receipt.has_native_original() {
                             state.native_closed += 1;
@@ -178,7 +178,7 @@ impl IpcOriginal {
         // their native-close outcomes and the stop request above.
         Self::close(&mut self.lock())
     }
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn observation(&self) -> (usize, usize, bool, bool) {
         let state = self.lock();
         (

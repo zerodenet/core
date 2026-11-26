@@ -40,7 +40,7 @@ pub async fn route_with_budget(
 }
 
 /// Route the request to the appropriate handler, enforcing permissions.
-#[cfg(test)]
+#[cfg(all(test, feature = "wireguard"))]
 pub async fn route(
     request: &HttpRequest,
     handle: &ProxyHandle,

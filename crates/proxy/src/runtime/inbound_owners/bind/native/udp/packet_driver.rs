@@ -82,6 +82,7 @@ impl NativeDatagramGrant {
         };
         GrantedPacketServiceCaller::from_registered(calls, original, driver, binding, call, targets)
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(in crate::runtime::inbound_owners) fn matches_packet_driver(
         &self,
         grant: &GrantedPacketServiceCaller,

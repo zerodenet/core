@@ -64,7 +64,7 @@ impl IpcFlowHook {
             panic!("actual callback interrupted while holding its original stream");
         });
     }
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn native_observation_for_test(&self) -> (usize, usize, bool, bool) {
         self.original.observation()
     }

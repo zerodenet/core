@@ -1,16 +1,21 @@
 //! Build persistent packet paths for protocol devices from concrete outbound tags.
 pub(super) mod publication;
+#[cfg(feature = "peer-raw-ip-runtime")]
 mod source;
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 use std::{collections::HashMap, sync::Arc};
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 use sha2::{Digest, Sha256};
 use zero_config::RuntimeConfig;
 use zero_engine::EngineError;
 
 use super::ProtocolInventory;
+#[cfg(feature = "peer-raw-ip-runtime")]
 use crate::adapters::devices::PreparedDevicePacketPath;
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 type PacketPaths = HashMap<String, PreparedDevicePacketPath>;
 
 impl ProtocolInventory {
@@ -30,6 +35,7 @@ impl ProtocolInventory {
             .fence_standalone_packet_acquisition(deadline, stopping)
             .await
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn actual_packet_flow_sources(
         &self,
         previous: &RuntimeConfig,
@@ -58,6 +64,7 @@ impl ProtocolInventory {
         self.devices.test_current_wireguard_devices(config)
     }
 
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(super) fn prepare_device_packet_paths(
         &self,
         config: &RuntimeConfig,
@@ -120,6 +127,7 @@ impl ProtocolInventory {
     }
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 fn path_identity(config: &RuntimeConfig, indices: &[usize]) -> Result<[u8; 32], EngineError> {
     path_identity_for(
         config,
@@ -127,6 +135,7 @@ fn path_identity(config: &RuntimeConfig, indices: &[usize]) -> Result<[u8; 32], 
     )
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) fn path_identity_for<'a>(
     config: &RuntimeConfig,
     members: impl IntoIterator<Item = &'a zero_config::OutboundConfig>,
@@ -144,11 +153,12 @@ pub(crate) fn path_identity_for<'a>(
     Ok(hash.finalize().into())
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 fn invalid(message: impl ToString) -> EngineError {
     EngineError::Io(std::io::Error::other(message.to_string()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "peer-raw-ip-runtime"))]
 mod tests;
 
 impl ProtocolInventory {

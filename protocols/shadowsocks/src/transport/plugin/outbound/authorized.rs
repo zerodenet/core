@@ -44,7 +44,7 @@ impl PluginPlan {
                         .inspect(|_| {
                             claimed.store(true, std::sync::atomic::Ordering::Release);
                         })
-                        .map(PluginChild::Library)
+                        .map(|c| PluginChild::Library(Box::new(c)))
                         .map_err(io::Error::other)
                 }
             },

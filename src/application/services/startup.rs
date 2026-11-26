@@ -3,14 +3,14 @@ use super::*;
 
 pub(super) struct ApplicationStartupSlot {
     owner: std::sync::Mutex<Option<Arc<ApplicationServices>>>,
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sink-jsonl"))]
     pub(super) pause: std::sync::Mutex<Option<Arc<StartupPause>>>,
 }
 impl ApplicationStartupSlot {
     pub(super) const fn new() -> Self {
         Self {
             owner: std::sync::Mutex::new(None),
-            #[cfg(test)]
+            #[cfg(all(test, feature = "sink-jsonl"))]
             pause: std::sync::Mutex::new(None),
         }
     }
@@ -46,7 +46,7 @@ impl ApplicationStartupSlot {
             *slot = None;
         }
     }
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sink-jsonl"))]
     pub(super) fn original(&self) -> Option<Arc<ApplicationServices>> {
         self.owner.lock().unwrap().clone()
     }
@@ -56,11 +56,11 @@ pub(super) static APPLICATION_STARTUP: ApplicationStartupSlot = ApplicationStart
 
 // These few binary tests intentionally exercise the same process-wide owner.
 // Tests supplying their own actual StartupSlot remain independent/parallel.
-#[cfg(test)]
+#[cfg(all(test, any(unix, feature = "sink-jsonl", feature = "grpc-api")))]
 pub(in crate::application) static PRODUCTION_STARTUP_TEST: tokio::sync::Mutex<()> =
     tokio::sync::Mutex::const_new(());
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sink-jsonl"))]
 pub(super) struct StartupPause {
     pub(super) prepared: tokio::sync::Notify,
     pub(super) resume: tokio::sync::Semaphore,

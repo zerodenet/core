@@ -122,6 +122,7 @@ impl PreparedInboundBind {
         self.address = Some(address);
         Ok(self)
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn with_recovery(mut self, recovery: Arc<dyn super::InboundRecovery>) -> Self {
         self.recovery = Some(recovery);
         self

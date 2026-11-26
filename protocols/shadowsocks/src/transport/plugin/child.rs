@@ -7,7 +7,7 @@ use tokio::process::Child;
 /// Host plans retain the original native provider: a contained tree on Linux /
 /// Windows, or the actually reaped child on other Unix platforms.
 pub(crate) enum PluginChild {
-    Library(Child),
+    Library(Box<Child>),
     #[cfg(any(unix, windows))]
     Owned(Arc<zero_platform_tokio::owned_process::OwnedProcess>),
 }
@@ -37,7 +37,7 @@ impl PluginChild {
             }
         }
     }
-    #[cfg(any(test, not(any(unix, windows))))]
+    #[cfg(any(all(test, unix), not(any(unix, windows))))]
     pub(crate) fn id(&self) -> Option<u32> {
         match self {
             Self::Library(child) => child.id(),

@@ -1,8 +1,11 @@
 //! Actual translated responses retain their native allocation through the
 //! same pending return admission; cache images never escape as bare Vecs.
 use super::*;
+#[cfg(feature = "peer-raw-ip-runtime")]
 use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
+#[cfg(feature = "peer-raw-ip-runtime")]
 use zero_stack::echo_translation::OwnedEchoResponse;
+#[cfg(feature = "peer-raw-ip-runtime")]
 impl PacketReturns {
     pub(crate) async fn deliver_correlated_owned_wait(
         &self,
@@ -86,6 +89,7 @@ impl PacketReturns {
         }
     }
 }
+#[cfg(feature = "peer-raw-ip-runtime")]
 fn invalid(message: &'static str) -> ChannelError {
     ChannelError::new(Stage::Receive, Reason::InvalidConfig, Impact::Component)
         .with_source(io::Error::other(message))
@@ -112,6 +116,7 @@ impl PacketReturns {
         false
     }
 
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn translate_owned(
         &self,
         packet: zero_traits::PacketBuffer,

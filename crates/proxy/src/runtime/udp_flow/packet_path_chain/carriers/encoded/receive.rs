@@ -6,6 +6,7 @@ impl Encoded {
         output: &mut [u8],
     ) -> Result<(usize, Option<SocketAddr>), EngineError> {
         match &self.memory {
+            #[cfg(feature = "peer-raw-ip-runtime")]
             CodecMemory::Source(memory) => {
                 memory
                     .receive(self.path.as_ref(), self.source.codec.as_ref(), output)

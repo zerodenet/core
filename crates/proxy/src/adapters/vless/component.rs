@@ -41,6 +41,7 @@ pub(crate) fn owned_input(input: &OutboundConfig) -> bool {
 }
 /// Existing root Browser UDP framing consumes its actual accepted Source.
 /// Associated-prefix admission remains separate in relay_shape.
+#[cfg(any(feature = "peer-raw-ip-runtime", test))]
 pub(crate) fn browser_source_datagram(input: &OutboundConfig) -> bool {
     browser::eligible(input)
         && matches!(
@@ -51,6 +52,7 @@ pub(crate) fn browser_source_datagram(input: &OutboundConfig) -> bool {
 }
 /// Cold role grammar implemented by the actual factories and loan executors.
 /// The returned facts do not stand in for a Host provider or close receipt.
+#[cfg(any(feature = "peer-raw-ip-runtime", test))]
 pub(crate) fn relay_shape(input: &OutboundConfig) -> Option<(bool, bool, bool)> {
     let OutboundProtocolConfig::Vless {
         flow,

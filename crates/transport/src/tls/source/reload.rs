@@ -208,12 +208,12 @@ impl PreparedServer {
                 },
                 _=async { match next {Some(next)=>tokio::time::sleep_until(next).await,None=>std::future::pending().await} }=>{},
             }
-            for index in 0..due.len() {
-                if due[index].is_some_and(|next| next <= tokio::time::Instant::now()) {
+            for (index, slot) in due.iter_mut().enumerate() {
+                if slot.is_some_and(|next| next <= tokio::time::Instant::now()) {
                     if let Err(error) = self.refresh_ocsp(&client, index, stop).await {
                         tracing::warn!(%error,"hosted TLS OCSP refresh retained its previous same-leaf staple");
                     }
-                    due[index] = Some(
+                    *slot = Some(
                         tokio::time::Instant::now()
                             + std::time::Duration::from_secs(self.files[index].ocsp_stapling_secs),
                     );

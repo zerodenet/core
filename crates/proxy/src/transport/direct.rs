@@ -537,6 +537,7 @@ impl DirectConnector {
         }
     }
 
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) async fn resolve_node_address(
         &self,
         address: &Address,
@@ -854,6 +855,7 @@ async fn resolve_direct_ipv4_host_addresses(
     resolved_socket_addresses(resolved, port)
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 async fn resolve_node_host_addresses(
     host: &str,
     port: u16,

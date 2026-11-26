@@ -2,11 +2,13 @@
 use super::*;
 use zero_api::{TrafficDropReason, TrafficPlane};
 use zero_platform_tokio::contract::packet::{PacketEvent, PacketObserver, PacketPlane};
+#[cfg(feature = "peer-raw-ip-runtime")]
 #[derive(Clone)]
 pub(super) struct ObservedTraffic {
     observer: Arc<dyn PacketObserver>,
     peer: Option<usize>,
 }
+#[cfg(feature = "peer-raw-ip-runtime")]
 impl ObservedTraffic {
     fn event(&self, plane: TrafficPlane, event: PacketEvent) {
         self.observer.event(
@@ -51,12 +53,14 @@ impl ObservedTraffic {
         );
     }
 }
+#[cfg(feature = "peer-raw-ip-runtime")]
 #[derive(Clone)]
 pub(super) struct WireTraffic {
     pub aggregate: ObservedTraffic,
     identities: Vec<Option<Arc<str>>>,
     generation: Option<u64>,
 }
+#[cfg(feature = "peer-raw-ip-runtime")]
 impl WireTraffic {
     pub fn new(observer: Arc<dyn PacketObserver>) -> Self {
         Self {

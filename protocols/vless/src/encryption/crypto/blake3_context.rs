@@ -93,8 +93,8 @@ fn compress(
 
 fn words_from_le_bytes(bytes: &[u8; BLOCK_LEN]) -> [u32; 16] {
     let mut words = [0u32; 16];
-    for (chunk, word) in bytes.chunks_exact(4).zip(&mut words) {
-        *word = u32::from_le_bytes(chunk.try_into().expect("4-byte word"));
+    for (chunk, word) in bytes.as_chunks::<4>().0.iter().zip(&mut words) {
+        *word = u32::from_le_bytes(*chunk);
     }
     words
 }
@@ -128,8 +128,8 @@ impl Output {
             self.flags | ROOT,
         );
         let mut out = [0u8; OUT_LEN];
-        for (word, slot) in words[..8].iter().zip(out.chunks_exact_mut(4)) {
-            slot.copy_from_slice(&word.to_le_bytes());
+        for (word, slot) in words[..8].iter().zip(out.as_chunks_mut::<4>().0) {
+            *slot = word.to_le_bytes();
         }
         out
     }

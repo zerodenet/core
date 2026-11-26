@@ -46,10 +46,6 @@ pub(crate) trait RawIpWireCarrier: Send + Sync {
     fn matches_driver(&self, _: &zero_platform_tokio::contract::scope::TaskJoinWitness) -> bool {
         false
     }
-    fn retirement_complete(&self) -> bool {
-        false
-    }
-    fn request_stop(&self) {}
     async fn initialize(&self) -> Result<(), EngineError> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,

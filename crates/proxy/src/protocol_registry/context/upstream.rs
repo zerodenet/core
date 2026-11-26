@@ -175,7 +175,7 @@ impl UpstreamConnectServices {
         self.egress_interface.clone()
     }
 
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn egress_generation(&self) -> u64 {
         self.egress_interface.generation()
     }
@@ -188,7 +188,7 @@ impl UpstreamConnectServices {
         self.dns_wire = Some(issuer);
         self
     }
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) async fn resolve_node_address(
         &self,
         address: &zero_core::Address,

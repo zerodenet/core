@@ -2,6 +2,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 
+#[allow(dead_code)]
 pub fn non_loopback_host_ipv4() -> Ipv4Addr {
     if let Ok(value) = std::env::var("ZERO_TEST_HOST_IPV4") {
         let address: Ipv4Addr = value

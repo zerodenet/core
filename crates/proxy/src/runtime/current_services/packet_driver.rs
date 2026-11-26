@@ -1,10 +1,11 @@
 //! Exact pending/current snapshot selection for an actual registered Packet actor.
 use super::*;
+#[cfg(feature = "peer-raw-ip-runtime")]
 use zero_platform_tokio::contract::{
     component::GrantedPacketServiceCaller, ChannelError, Impact, Reason, Stage,
 };
 
-#[cfg(feature = "datagram-route-runtime")]
+#[cfg(all(feature = "peer-raw-ip-runtime", feature = "datagram-route-runtime"))]
 type PacketDriverCandidate = Option<(
     Arc<zero_config::RuntimeConfig>,
     Arc<crate::component::catalog::ComponentPlan>,
@@ -15,6 +16,7 @@ type PacketDriverCandidate = Option<(
 // Both queries still consume that original registry's identity/native checks.
 #[cfg(feature = "datagram-route-runtime")]
 pub(super) trait PacketSourceLookup: Send + Sync {
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn packet_driver_candidate(
         &self,
         protocols: &ProtocolInventory,
@@ -32,6 +34,7 @@ pub(super) trait PacketSourceLookup: Send + Sync {
 
 #[cfg(feature = "datagram-route-runtime")]
 impl PacketSourceLookup for crate::runtime::inbound_owners::InboundOwnerRegistry {
+    #[cfg(feature = "peer-raw-ip-runtime")]
     fn packet_driver_candidate(
         &self,
         protocols: &ProtocolInventory,
@@ -52,6 +55,7 @@ impl PacketSourceLookup for crate::runtime::inbound_owners::InboundOwnerRegistry
     }
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 impl CurrentServiceSource {
     pub(crate) fn packet_driver_services(
         self: &Arc<Self>,

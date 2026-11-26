@@ -32,7 +32,7 @@ pub(crate) mod mux_udp;
 pub(crate) mod orchestration;
 pub(crate) mod outbound_probe;
 mod packet_close_owner;
-#[cfg(feature = "raw-ip-runtime")]
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) mod packet_flow;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod packet_route;
@@ -51,7 +51,7 @@ mod running;
 pub(crate) mod sniff;
 // Direct and standard inbound streams also recover DNS targets.
 mod target;
-#[cfg(all(test, feature = "raw-ip-runtime"))]
+#[cfg(all(test, feature = "peer-raw-ip-runtime"))]
 pub(crate) use target::resolve_packet_targets;
 pub(crate) mod tcp_dispatch;
 pub(crate) mod tcp_ingress;

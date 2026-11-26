@@ -147,9 +147,6 @@ impl IpcServerHandle {
         Ok(())
     }
 }
-pub fn default_socket_path() -> Option<PathBuf> {
-    Some(PathBuf::from(PIPE_NAME))
-}
 pub fn resolve_socket_path(explicit: Option<&str>) -> io::Result<PathBuf> {
     Ok(PathBuf::from(explicit.unwrap_or(PIPE_NAME)))
 }

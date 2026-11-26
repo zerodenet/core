@@ -1,5 +1,6 @@
 //! Bounded, cancellation-safe Packet channel views over the same wire owner.
 use super::*;
+use std::pin::Pin;
 pub(crate) struct Tx {
     pub(super) sender: PollSender<IpPacket>,
     pub(super) cancel: zero_platform_tokio::contract::CancellationToken,

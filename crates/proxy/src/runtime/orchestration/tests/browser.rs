@@ -54,7 +54,7 @@ async fn browser() -> Agent {
 async fn relay_browser(
     mut browser: Agent,
     roots: rustls::RootCertStore,
-) -> Result<(), WebSocketError> {
+) -> Result<(), Box<WebSocketError>> {
     let task = browser.next().await.unwrap().unwrap().into_text().unwrap();
     let task: serde_json::Value = serde_json::from_str(&task).unwrap();
     assert_eq!(task["method"], "WS");
@@ -120,15 +120,15 @@ async fn relay_browser(
     };
     let _ = browser.close(None).await;
     let _ = remote.close(None).await;
-    result
+    result.map_err(Box::new)
 }
 
-fn assert_retired_browser_agent(result: Result<(), WebSocketError>, source: &CarrierOrigin) {
+fn assert_retired_browser_agent(result: Result<(), Box<WebSocketError>>, source: &CarrierOrigin) {
     assert!(source.accepted().unwrap().is_settled());
     let closed = source.closed().unwrap();
     assert!(closed.matches(source) && closed.had_native_acquisition());
     // The Browser Source may revoke its TCP original before the WebSocket Close exchange.
-    match result {
+    match result.map_err(|err| *err) {
         Ok(()) | Err(WebSocketError::Protocol(ProtocolError::ResetWithoutClosingHandshake)) => {}
         Err(WebSocketError::Io(error))
             if matches!(

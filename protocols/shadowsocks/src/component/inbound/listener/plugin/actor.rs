@@ -107,7 +107,9 @@ impl Actor {
             let mut state = self.shared.state.lock().unwrap();
             let child = self.resources.spawn_process(request)?;
             state.pid = child.id();
-            state.child = Some(crate::transport::plugin::child::PluginChild::Library(child));
+            state.child = Some(crate::transport::plugin::child::PluginChild::Library(
+                Box::new(child),
+            ));
             Ok(())
         }
     }

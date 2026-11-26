@@ -13,7 +13,7 @@ mod logging;
 use cleanup_fault::{CleanupOwner, CleanupReceivers};
 mod control;
 mod startup;
-#[cfg(test)]
+#[cfg(all(test, any(unix, feature = "sink-jsonl", feature = "grpc-api")))]
 pub(in crate::application) use startup::PRODUCTION_STARTUP_TEST;
 use startup::{ApplicationStartupSlot, APPLICATION_STARTUP};
 mod dispatcher;
@@ -53,7 +53,7 @@ struct ApplicationAttempt {
 }
 struct ApplicationServiceState {
     attempt: Option<ApplicationAttempt>,
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sink-jsonl"))]
     preparation_pause: Option<Arc<startup::StartupPause>>,
     pending_hooks: Option<hooks::PreparedHooks>,
     hooks: Option<hooks::PreparedHooks>,
@@ -205,7 +205,7 @@ impl ApplicationServices {
                 config: config.clone(),
                 installed: false,
                 attempt: None,
-                #[cfg(test)]
+                #[cfg(all(test, feature = "sink-jsonl"))]
                 preparation_pause: startup.pause.lock().unwrap().clone(),
                 pending_hooks: None,
                 hooks: None,

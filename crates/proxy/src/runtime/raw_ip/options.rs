@@ -6,6 +6,7 @@ use zero_stack::client_udp::ClientUdpReceiveQueueConfig;
 pub(crate) struct RawIpStackOptions {
     pub(crate) udp_receive_queue: ClientUdpReceiveQueueConfig,
     pub(crate) packet_wire_memory: Option<zero_stack::packet_output::memory::PacketWireMemory>,
+    #[cfg(feature = "peer-raw-ip-runtime")]
     packet_memory_view:
         Option<std::sync::Arc<std::sync::OnceLock<zero_tun::packet_memory::PacketMemoryView>>>,
     pub(crate) packet_return_totals: std::sync::Arc<super::PacketReturnTotals>,
@@ -22,6 +23,7 @@ pub(crate) struct RawIpStackOptions {
     pub(crate) packet_transmit_total_max_bytes: usize,
     pub(crate) packet_driver_metadata_total_max_allocations: usize,
     pub(crate) packet_driver_metadata_total_max_bytes: usize,
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) traffic: super::RawIpTraffic,
 }
 impl RawIpStackOptions {
@@ -34,6 +36,7 @@ impl RawIpStackOptions {
     ) -> Self {
         Self {
             packet_wire_memory: None,
+            #[cfg(feature = "peer-raw-ip-runtime")]
             packet_memory_view: None,
             udp_receive_queue: ClientUdpReceiveQueueConfig {
                 capacity: config.capacity,
@@ -54,9 +57,11 @@ impl RawIpStackOptions {
             packet_transmit_total_max_bytes: 64 * 1024 * 1024,
             packet_driver_metadata_total_max_allocations: 16384,
             packet_driver_metadata_total_max_bytes: 16 * 1024 * 1024,
+            #[cfg(feature = "peer-raw-ip-runtime")]
             traffic: Default::default(),
         }
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn with_packet_wire_memory(
         mut self,
         wire: zero_stack::packet_output::memory::PacketWireMemory,
@@ -64,6 +69,7 @@ impl RawIpStackOptions {
         self.packet_wire_memory = Some(wire);
         self
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn with_packet_memory_cell(
         mut self,
         cell: std::sync::Arc<std::sync::OnceLock<zero_tun::packet_memory::PacketMemoryView>>,
@@ -71,6 +77,7 @@ impl RawIpStackOptions {
         self.packet_memory_view = Some(cell);
         self
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(super) fn packet_output(
         &self,
         sender: tokio::sync::mpsc::Sender<zero_stack::packet_output::ObservedPacket>,
@@ -178,7 +185,7 @@ impl RawIpStackOptions {
         }
         hash.finalize().into()
     }
-    #[cfg(test)]
+    #[cfg(all(test, feature = "peer-raw-ip-runtime"))]
     pub(crate) fn with_traffic(mut self, traffic: super::RawIpTraffic) -> Self {
         self.traffic = traffic;
         self

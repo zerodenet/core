@@ -1,7 +1,8 @@
 //! Bounded reverse delivery for packets forwarded through a shared device.
 
+#[cfg(any(feature = "peer-raw-ip-runtime", test))]
+use std::io;
 use std::{
-    io,
     net::IpAddr,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -14,8 +15,10 @@ mod limits;
 mod maintenance;
 mod prune;
 mod registration;
+#[cfg(feature = "peer-raw-ip-runtime")]
 mod tcp_fence;
 mod translated;
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(in crate::runtime::raw_ip::device) use tcp_fence::TcpReturnFence;
 
 use tokio::sync::mpsc;
@@ -67,10 +70,12 @@ struct TranslatedReturn {
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
+#[cfg(any(feature = "peer-raw-ip-runtime", test))]
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum ReturnSource {
     #[cfg(test)]
     Legacy(u64),
+    #[cfg(feature = "peer-raw-ip-runtime")]
     Endpoint {
         endpoint: zero_core::component::EndpointId,
         generation: zero_core::component::ResourceGeneration,
@@ -78,6 +83,7 @@ pub(crate) enum ReturnSource {
     },
 }
 struct ReturnRoute {
+    #[cfg(any(feature = "peer-raw-ip-runtime", test))]
     ingress_id: ReturnSource,
     replies: zero_stack::packet_output::PacketSender,
     touched: Instant,
@@ -226,6 +232,7 @@ impl PacketReturns {
         self.deliver_native(packet)
     }
 
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) async fn deliver_owned_wait(
         &self,
         packet: zero_traits::PacketBuffer,

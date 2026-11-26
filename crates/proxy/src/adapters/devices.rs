@@ -2,14 +2,16 @@
 //! No dynamic lifecycle SPI or protocol lookup lives in the runtime registry.
 #[cfg(feature = "raw-ip-runtime")]
 mod component;
-#[cfg(feature = "raw-ip-runtime")]
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) use component::DeviceOuterMaterials;
 mod endpoint_query;
 pub(crate) use endpoint_query::EndpointDeviceRows;
 #[cfg(feature = "raw-ip-runtime")]
 mod context;
 #[cfg(feature = "raw-ip-runtime")]
-pub(crate) use context::{OutboundDevicePreparationContext, PreparedDevicePacketPath};
+pub(crate) use context::OutboundDevicePreparationContext;
+#[cfg(feature = "peer-raw-ip-runtime")]
+pub(crate) use context::PreparedDevicePacketPath;
 #[cfg(feature = "raw-ip-runtime")]
 use std::sync::Arc;
 #[cfg(feature = "raw-ip-runtime")]
@@ -61,6 +63,7 @@ impl Devices {
         }
         let _ = (config, rows);
     }
+    #[cfg(feature = "peer-raw-ip-runtime")]
     pub(crate) fn actual_packet_flow_sources(
         &self,
         previous: &RuntimeConfig,

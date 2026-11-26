@@ -37,7 +37,7 @@ fn denied(message: &'static str) -> ChannelError {
         .with_source(std::io::Error::other(message))
 }
 impl Grant {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn pause_probe(&self) -> Arc<probe::Gate> {
         self.probe.try_lock().unwrap().pause()
     }

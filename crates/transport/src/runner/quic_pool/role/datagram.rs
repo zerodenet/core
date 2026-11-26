@@ -21,6 +21,10 @@ use zero_platform_tokio::{
     controlled_carrier::{loan::DatagramLoan, CarrierOrigin},
 };
 
+/// Boxed future returning an opened [`DatagramSession`] over a QUIC pool session.
+pub type OpenedPoolDatagramFuture<Tx, Rx, C> =
+    BoxFuture<'static, Result<DatagramSession<Tx, Rx, C>, ChannelError>>;
+
 /// Optional Datagram role extension over a [`QuicPoolRoleProtocol`] session.
 pub trait QuicPoolDatagramProtocol<P: QuicPoolRoleProtocol>: Send + Sync + 'static {
     type Tx: DatagramTx + 'static;
@@ -35,7 +39,7 @@ pub trait QuicPoolDatagramProtocol<P: QuicPoolRoleProtocol>: Send + Sync + 'stat
         context: OpenContext,
         generation: Arc<QuicPoolGeneration<P>>,
         profile: usize,
-    ) -> BoxFuture<'static, Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError>>;
+    ) -> OpenedPoolDatagramFuture<Self::Tx, Self::Rx, Self::Control>;
 }
 
 /// Sentinel disabling `RoleKind::Datagram` on [`super::QuicPoolRoleFactory`].
@@ -89,8 +93,7 @@ impl<P: QuicPoolRoleProtocol> QuicPoolDatagramProtocol<P> for NoQuicPoolDatagram
         _: OpenContext,
         _: Arc<QuicPoolGeneration<P>>,
         _: usize,
-    ) -> BoxFuture<'static, Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError>>
-    {
+    ) -> OpenedPoolDatagramFuture<Self::Tx, Self::Rx, Self::Control> {
         Box::pin(async { Err(error(Stage::Prepare, Reason::Unsupported)) })
     }
 }

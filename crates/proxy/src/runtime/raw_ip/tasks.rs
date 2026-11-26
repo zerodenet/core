@@ -5,8 +5,8 @@ mod output;
 pub(crate) mod scoped;
 pub(crate) use output::TaskOutput;
 pub(crate) type Source = std::sync::Arc<dyn std::error::Error + Send + Sync>;
-#[cfg(test)]
+#[cfg(all(test, feature = "peer-raw-ip-runtime"))]
 #[path = "tasks/tests/legacy.rs"]
 mod legacy;
-#[cfg(test)]
+#[cfg(all(test, feature = "peer-raw-ip-runtime"))]
 pub(crate) use legacy::RetainedTasks;

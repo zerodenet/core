@@ -6,6 +6,7 @@ use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
 pub(crate) type SourceComponentDependencies =
     std::collections::BTreeMap<String, ([u8; 32], BTreeSet<ComponentId>)>;
+#[cfg(feature = "peer-raw-ip-runtime")]
 pub(crate) type DeviceOuterMaterials = std::collections::HashMap<
     String,
     std::sync::Arc<[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
@@ -189,6 +190,7 @@ impl Devices {
     }
 }
 
+#[cfg(feature = "peer-raw-ip-runtime")]
 impl Devices {
     pub(crate) fn prepared_outer_materials(
         &self,
