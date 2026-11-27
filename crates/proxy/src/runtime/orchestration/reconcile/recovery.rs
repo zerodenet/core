@@ -178,7 +178,7 @@ impl OrchestrationState {
             // closed DoH pools or an uncommitted journal allocator.
             if let Some((token, mut guard)) = staged_dns.take() {
                 if can_restore {
-                    if let Err(error) = finish_recovery_dns(proxy, &token, &mut guard).await {
+                    if let Err(error) = restore_dns(proxy, &token, &mut guard).await {
                         can_restore = false;
                         acknowledgement
                             .push_str(&format!("; DNS recovery remains unconfirmed: {error}"));
@@ -460,7 +460,7 @@ pub(super) async fn prepare_recovery_dns<'a>(
     Ok((token, guard))
 }
 
-pub(super) async fn finish_recovery_dns(
+pub(super) async fn restore_dns(
     proxy: &Proxy,
     token: &zero_dns::DnsReloadResources,
     guard: &mut RecoveryDnsGuard<'_>,

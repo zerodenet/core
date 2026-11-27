@@ -11,6 +11,7 @@ use zero_platform_tokio::{contract::scope::TaskJoinWitness, controlled_carrier::
 pub(super) struct NativeClient {
     pub(super) task: OnceLock<TaskJoinWitness>,
     pub(super) original: tokio::sync::Mutex<Option<LoanOwner>>,
+    settle_lock: tokio::sync::Mutex<()>,
     provider: Mutex<Option<Arc<dyn NativeDnsProvider>>>,
     closed: AtomicBool,
     // Read-only facts copied only from this actual canonical provider/loan.
@@ -60,6 +61,7 @@ impl NativeClient {
             origin: OnceLock::new(),
             task: OnceLock::new(),
             original: Default::default(),
+            settle_lock: Default::default(),
             provider: Mutex::new(Some(provider)),
             closed: AtomicBool::new(false),
         }
@@ -97,6 +99,12 @@ impl NativeClient {
         self.closed.load(Ordering::Acquire)
     }
     pub(super) async fn settle(&self, end: Instant) -> io::Result<()> {
+        if self.retired() {
+            return Ok(());
+        }
+        let _settling = tokio::time::timeout_at(end, self.settle_lock.lock())
+            .await
+            .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
         if self.retired() {
             return Ok(());
         }

@@ -92,7 +92,7 @@ impl OrchestrationState {
                             proxy, config, services, preparing,
                         )
                         .await?;
-                        finish_recovery_dns(proxy, dns, dns_guard)
+                        restore_dns(proxy, dns, dns_guard)
                             .await
                             .map_err(std::io::Error::other)?;
                         budget_barrier::start_deferred_resources(
