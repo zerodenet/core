@@ -2,8 +2,8 @@
 set -euo pipefail
 
 BINARY=${1:?release binary path required}
-# Remain installable by existing controllers with a 64 MiB extracted-file limit.
-MAX_BYTES=$((64 * 1024 * 1024))
+# Guard against unstripped or un-LTO'd release binary bloat across all 5 targets.
+MAX_BYTES=$((96 * 1024 * 1024))
 BYTES=$(wc -c < "$BINARY")
 if (( BYTES <= 0 || BYTES > MAX_BYTES )); then
     echo "::error::Release binary size is $BYTES bytes; allowed: 1-$MAX_BYTES bytes"

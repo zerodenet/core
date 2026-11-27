@@ -149,6 +149,7 @@ impl DispatcherCapacity {
             .map(|permit| TaskCharge(Some(permit)))
             .map_err(|_| capacity("dispatcher worker task"))
     }
+    #[cfg(feature = "sink-jsonl")]
     pub(crate) async fn publisher(&self) -> io::Result<TaskCharge> {
         self.tasks
             .clone()

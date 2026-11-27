@@ -88,6 +88,7 @@ impl DispatcherResources {
         self.0.retired_faults.lock().unwrap().push(source);
     }
 
+    #[cfg(feature = "sink-jsonl")]
     pub(crate) fn jsonl(&self, file: FileView) -> Arc<JsonLineEventSink<FileView>> {
         let sink = Arc::new(JsonLineEventSink::new(file));
         self.0.jsonl.lock().unwrap().push(sink.clone());

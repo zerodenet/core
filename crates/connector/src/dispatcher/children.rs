@@ -178,6 +178,7 @@ impl DispatcherChildren {
         self.failures.lock().unwrap().len()
             + usize::from(self.source_failure.lock().unwrap().is_some())
     }
+    #[cfg(feature = "sink-jsonl")]
     pub(crate) async fn blocking_publish(
         &self,
         publish: impl FnOnce() -> zero_api::ApiResult<zero_api::PublishResult> + Send + 'static,

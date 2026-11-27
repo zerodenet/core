@@ -89,10 +89,19 @@ license = "MPL-2.0"
 repository = "https://github.com/zerodenet/zero"
 homepage = "https://zerodenet.org"
 
-# Keep throughput-oriented optimization and unwind-based hook isolation.
-# Drop shipped symbols without adding link-time optimization work.
+# Keep hot data-plane and dependency crates at opt-level = 3 with unwind-based
+# hook isolation, while applying ThinLTO and size-aware inlining across
+# orchestration/control workspace crates to prevent monomorphization bloat.
 [profile.release]
+opt-level = "s"
+lto = "thin"
 strip = "symbols"
+
+[profile.release.package."*"]
+opt-level = 3
+
+[profile.release.package.zero-stack]
+opt-level = 3
 
 [workspace.dependencies]
 # Keep the reviewed QUIC carrier and local neutral extensions on one API version.
