@@ -82,7 +82,7 @@ exclude = ["vendor/quinn", "vendor/quinn-proto", "vendor/h2", "vendor/hyper", "v
 resolver = "2"
 
 [workspace.package]
-version = "0.0.3-dev.202611270210"
+version = "0.0.3-dev.202611270234"
 edition = "2021"
 authors = ["zerodenet <https://zerodenet.org>"]
 license = "MPL-2.0"
