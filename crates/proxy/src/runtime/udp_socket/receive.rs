@@ -52,7 +52,7 @@ impl DirectUdpSockets {
             receiver.cursor = (index + 1) % self.sockets.len();
             let (size, sender) = match result {
                 Ok(received) => received,
-                Err(error) if is_transient_udp_recv_error(&error) => {
+                Err(error) if zero_platform_tokio::is_transient_datagram_io_error(&error) => {
                     tokio::task::yield_now().await;
                     continue;
                 }
@@ -110,34 +110,4 @@ impl DirectUdpSockets {
         // receive in their existing select loop before mutating the socket set.
         Poll::Pending
     }
-}
-
-fn is_transient_udp_recv_error(error: &io::Error) -> bool {
-    if matches!(
-        error.kind(),
-        io::ErrorKind::ConnectionReset
-            | io::ErrorKind::ConnectionRefused
-            | io::ErrorKind::NetworkDown
-            | io::ErrorKind::NetworkUnreachable
-            | io::ErrorKind::HostUnreachable
-            | io::ErrorKind::AddrNotAvailable
-    ) {
-        return true;
-    }
-    #[cfg(unix)]
-    if matches!(
-        error.raw_os_error(),
-        Some(
-            libc::ENETDOWN
-                | libc::ENETUNREACH
-                | libc::EHOSTUNREACH
-                | libc::EADDRNOTAVAIL
-                | libc::ECONNREFUSED
-                | libc::ECONNRESET
-                | libc::ENOBUFS
-        )
-    ) {
-        return true;
-    }
-    false
 }

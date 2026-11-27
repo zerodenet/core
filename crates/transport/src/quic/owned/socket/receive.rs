@@ -47,7 +47,9 @@ impl MetadataSocket {
                 &mut neutral[..count],
             ) {
                 Poll::Pending => return Poll::Pending,
-                Poll::Ready(Err(error)) if is_transient_native_recv_error(&error) => {
+                Poll::Ready(Err(error))
+                    if zero_platform_tokio::is_transient_datagram_io_error(&error) =>
+                {
                     let source = Arc::new(error);
                     {
                         let mut drops = self.drops.lock().unwrap();
@@ -83,34 +85,4 @@ impl MetadataSocket {
         cx.waker().wake_by_ref();
         Poll::Pending
     }
-}
-
-fn is_transient_native_recv_error(error: &io::Error) -> bool {
-    if matches!(
-        error.kind(),
-        io::ErrorKind::ConnectionReset
-            | io::ErrorKind::ConnectionRefused
-            | io::ErrorKind::NetworkDown
-            | io::ErrorKind::NetworkUnreachable
-            | io::ErrorKind::HostUnreachable
-            | io::ErrorKind::AddrNotAvailable
-    ) {
-        return true;
-    }
-    #[cfg(unix)]
-    if matches!(
-        error.raw_os_error(),
-        Some(
-            libc::ENETDOWN
-                | libc::ENETUNREACH
-                | libc::EHOSTUNREACH
-                | libc::EADDRNOTAVAIL
-                | libc::ECONNREFUSED
-                | libc::ECONNRESET
-                | libc::ENOBUFS
-        )
-    ) {
-        return true;
-    }
-    false
 }

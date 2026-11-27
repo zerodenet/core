@@ -48,6 +48,7 @@ pub mod controlled_datagram;
 mod controlled_pipe;
 mod controlled_tcp;
 mod datagram;
+pub use datagram::is_transient_datagram_io_error;
 mod original_poll;
 mod original_protocol;
 #[cfg(windows)]

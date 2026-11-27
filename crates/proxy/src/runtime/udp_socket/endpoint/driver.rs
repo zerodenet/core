@@ -297,34 +297,8 @@ pub(super) async fn run(
 }
 
 fn is_transient_udp_send_error(error: &EngineError) -> bool {
-    let EngineError::Io(io) = error else {
-        return false;
-    };
-    if matches!(
-        io.kind(),
-        std::io::ErrorKind::ConnectionReset
-            | std::io::ErrorKind::ConnectionRefused
-            | std::io::ErrorKind::NetworkDown
-            | std::io::ErrorKind::NetworkUnreachable
-            | std::io::ErrorKind::HostUnreachable
-            | std::io::ErrorKind::AddrNotAvailable
-    ) {
-        return true;
-    }
-    #[cfg(unix)]
-    if matches!(
-        io.raw_os_error(),
-        Some(
-            libc::ENETDOWN
-                | libc::ENETUNREACH
-                | libc::EHOSTUNREACH
-                | libc::EADDRNOTAVAIL
-                | libc::ECONNREFUSED
-                | libc::ECONNRESET
-                | libc::ENOBUFS
-        )
-    ) {
-        return true;
-    }
-    false
+    matches!(
+        error,
+        EngineError::Io(io) if zero_platform_tokio::is_transient_datagram_io_error(io)
+    )
 }

@@ -33,31 +33,5 @@ pub(super) fn is_unsubmitted_stale_wire_error(error: &io::Error) -> bool {
 /// Wi-Fi / interface / route transitions (`ENETDOWN`, `ENETUNREACH`,
 /// `EHOSTUNREACH`, `EADDRNOTAVAIL`, `ECONNREFUSED`, `ECONNRESET`, `ENOBUFS`).
 pub(super) fn is_transient_outer_network_error(error: &io::Error) -> bool {
-    if matches!(
-        error.kind(),
-        io::ErrorKind::ConnectionReset
-            | io::ErrorKind::ConnectionRefused
-            | io::ErrorKind::NetworkDown
-            | io::ErrorKind::NetworkUnreachable
-            | io::ErrorKind::HostUnreachable
-            | io::ErrorKind::AddrNotAvailable
-    ) {
-        return true;
-    }
-    #[cfg(unix)]
-    if matches!(
-        error.raw_os_error(),
-        Some(
-            libc::ENETDOWN
-                | libc::ENETUNREACH
-                | libc::EHOSTUNREACH
-                | libc::EADDRNOTAVAIL
-                | libc::ECONNREFUSED
-                | libc::ECONNRESET
-                | libc::ENOBUFS
-        )
-    ) {
-        return true;
-    }
-    false
+    zero_platform_tokio::is_transient_datagram_io_error(error)
 }

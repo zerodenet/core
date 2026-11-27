@@ -101,6 +101,67 @@ impl crate::TokioDatagramSocket {
     }
 }
 
+/// Returns `true` for per-datagram OS network/route/ICMP errors commonly
+/// observed during interface, Wi-Fi, or route transitions that do not
+/// invalidate the underlying bound UDP socket descriptor.
+pub fn is_transient_datagram_io_error(error: &io::Error) -> bool {
+    if matches!(
+        error.kind(),
+        io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionRefused
+            | io::ErrorKind::NetworkDown
+            | io::ErrorKind::NetworkUnreachable
+            | io::ErrorKind::HostUnreachable
+            | io::ErrorKind::AddrNotAvailable
+    ) {
+        return true;
+    }
+    is_platform_transient_datagram_os_error(error.raw_os_error())
+}
+
+#[cfg(unix)]
+fn is_platform_transient_datagram_os_error(raw: Option<i32>) -> bool {
+    matches!(
+        raw,
+        Some(
+            libc::ENETDOWN
+                | libc::ENETRESET
+                | libc::ENETUNREACH
+                | libc::EHOSTUNREACH
+                | libc::EADDRNOTAVAIL
+                | libc::ECONNREFUSED
+                | libc::ECONNRESET
+                | libc::ENOBUFS
+        )
+    )
+}
+
+#[cfg(windows)]
+fn is_platform_transient_datagram_os_error(raw: Option<i32>) -> bool {
+    use windows_sys::Win32::Networking::WinSock::{
+        WSAEADDRNOTAVAIL, WSAECONNREFUSED, WSAECONNRESET, WSAEHOSTUNREACH, WSAENETDOWN,
+        WSAENETRESET, WSAENETUNREACH, WSAENOBUFS,
+    };
+    matches!(
+        raw,
+        Some(
+            WSAENETDOWN
+                | WSAENETRESET
+                | WSAENETUNREACH
+                | WSAEHOSTUNREACH
+                | WSAEADDRNOTAVAIL
+                | WSAECONNREFUSED
+                | WSAECONNRESET
+                | WSAENOBUFS
+        )
+    )
+}
+
+#[cfg(not(any(unix, windows)))]
+fn is_platform_transient_datagram_os_error(_raw: Option<i32>) -> bool {
+    false
+}
+
 #[derive(Debug)]
 struct NativeCloseFailure {
     source: io::Error,
