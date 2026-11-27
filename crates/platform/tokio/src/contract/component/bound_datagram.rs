@@ -72,6 +72,11 @@ pub trait DatagramBindingAuthorization: Send + Sync {
         peer: SocketAddr,
         expected: NetworkGeneration,
     ) -> Result<EgressSelection, ChannelError>;
+    /// Trigger at most one host network generation invalidation when a live
+    /// socket observes egress source/interface drift within `expected`.
+    fn note_stale_selection(&self, _expected: NetworkGeneration) -> bool {
+        false
+    }
 }
 #[derive(Debug)]
 pub struct GrantedBoundDatagram {

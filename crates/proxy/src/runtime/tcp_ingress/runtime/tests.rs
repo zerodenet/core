@@ -34,7 +34,7 @@ async fn active_tcp_relay_is_not_closed_at_absolute_idle_timeout() {
             "inbounds": [{
                 "tag": "test-inbound",
                 "listen": { "address": "127.0.0.1", "port": 12345 },
-                "protocol": { "type": "mixed" },
+                "protocol": { "type": "direct", "target": "127.0.0.1", "port": 1 },
                 "idle_timeout_secs": 1
             }],
             "route": { "rules": [], "final": { "type": "direct" } }

@@ -648,11 +648,19 @@ impl OrchestrationState {
                 }
             };
             if let Err(error) =
-                self.refresh_dns_component_candidate(&new_snapshot, &components, actual)
+                self.refresh_dns_component_candidate(&new_snapshot, &components, actual.clone())
             {
                 self.reject_reload(proxy, &new_snapshot, error.to_string())
                     .await;
                 return;
+            }
+            if !compensating {
+                if let Some(wire) = proxy.pending_wire_transition(&new_snapshot) {
+                    if let Err(error) = wire.bind_plan(&new_snapshot, &actual) {
+                        self.reject_reload(proxy, &new_snapshot, error).await;
+                        return;
+                    }
+                }
             }
         }
         if let Err(error) = preparing.ensure_open() {
@@ -806,6 +814,6 @@ impl OrchestrationState {
         rejected: &'a std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
         message: String,
     ) -> zero_platform_tokio::contract::BoxFuture<'a, ()> {
-        self.finish_rejection(proxy, rejected, message, false)
+        self.finish_rejection(proxy, rejected, message, true)
     }
 }

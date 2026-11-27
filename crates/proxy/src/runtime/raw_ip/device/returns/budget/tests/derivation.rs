@@ -112,6 +112,17 @@ async fn full_actual_return_queue_derives_without_extra_credit_and_holds_origina
         .unwrap();
     let (mut reader, _) = listener.accept().await.unwrap();
     writer.set_nodelay(true).unwrap();
+    let filler = [0x5a_u8; 4096];
+    let mut stuffed = 0_usize;
+    writer.writable().await.unwrap();
+    while stuffed < 4 * 1024 * 1024 {
+        match writer.try_write(&filler) {
+            Ok(0) => break,
+            Ok(written) => stuffed += written,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("prefill loopback socket buffer: {error}"),
+        }
+    }
     let expected = lengths.iter().sum::<usize>();
     let (entered, pending) = tokio::sync::oneshot::channel();
     let mut scope = TaskScope::new(
@@ -159,6 +170,19 @@ async fn full_actual_return_queue_derives_without_extra_credit_and_holds_origina
         held.1 >= bytes + frame().len(),
         "original bytes stay debited through every derived send"
     );
+    let mut drain = vec![0_u8; 8192];
+    let mut remaining = stuffed;
+    while remaining > 0 {
+        let chunk = remaining.min(drain.len());
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            reader.read_exact(&mut drain[..chunk]),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        remaining -= chunk;
+    }
     let mut native = vec![0; expected];
     tokio::time::timeout(Duration::from_secs(5), reader.read_exact(&mut native))
         .await

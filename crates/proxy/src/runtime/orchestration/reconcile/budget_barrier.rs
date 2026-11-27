@@ -234,7 +234,7 @@ pub(in crate::runtime) fn windows_ring_budget_changed(
         false
     }
 }
-pub(super) struct SourceBudgetPauses {
+pub(in crate::runtime::orchestration) struct SourceBudgetPauses {
     // Same old roots remain fenced until the actual publication finishes.
     // This is admission metadata, never Native/Scope/IO close evidence.
     _users: Arc<crate::component::catalog::ReplacementUsersPause>,
@@ -244,7 +244,7 @@ pub(super) struct SourceBudgetPauses {
     #[cfg(feature = "raw-ip-runtime")]
     _standalone: Vec<crate::runtime::packet_route::host::NativeDevicePaused>,
 }
-pub(super) async fn pause_sources<'a>(
+pub(in crate::runtime::orchestration) async fn pause_sources<'a>(
     proxy: &'a Proxy,
     previous: &RuntimeConfig,
     next: &RuntimeConfig,
@@ -526,7 +526,7 @@ pub(super) fn start_resources<'a>(
         start_deferred_resources(proxy, config, services, preparing, retained).await
     })
 }
-fn start_deferred_resources<'a>(
+pub(super) fn start_deferred_resources<'a>(
     proxy: &'a Proxy,
     config: &'a Arc<RuntimeConfig>,
     services: &'a crate::protocol_registry::TcpRuntimeServices,
@@ -581,18 +581,17 @@ fn start_deferred_resources<'a>(
             }
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
-        let _ = (services, preparing, retained);
+        let _ = (proxy, config, services, preparing, retained);
         Ok(())
     })
 }
 
 #[cfg(feature = "raw-ip-runtime")]
-pub(super) fn restart_tun_and_resources<'a>(
+pub(super) fn restart_tun_components<'a>(
     proxy: &'a Proxy,
     config: &'a Arc<RuntimeConfig>,
     services: &'a crate::protocol_registry::TcpRuntimeServices,
     preparing: &'a Arc<crate::runtime::inbound_owners::PreparingInbounds>,
-    retained: &'a HashMap<String, InboundConfig>,
 ) -> BoxFuture<'a, Result<crate::protocol_registry::TcpRuntimeServices, EngineError>> {
     Box::pin(async move {
         proxy.stop_tun_for_packet_budget(config).await?;
@@ -617,6 +616,20 @@ pub(super) fn restart_tun_and_resources<'a>(
             .start(deadline)
             .await
             .map_err(std::io::Error::other)?;
+        Ok(services)
+    })
+}
+
+#[cfg(feature = "raw-ip-runtime")]
+pub(super) fn restart_tun_and_resources<'a>(
+    proxy: &'a Proxy,
+    config: &'a Arc<RuntimeConfig>,
+    services: &'a crate::protocol_registry::TcpRuntimeServices,
+    preparing: &'a Arc<crate::runtime::inbound_owners::PreparingInbounds>,
+    retained: &'a HashMap<String, InboundConfig>,
+) -> BoxFuture<'a, Result<crate::protocol_registry::TcpRuntimeServices, EngineError>> {
+    Box::pin(async move {
+        let services = restart_tun_components(proxy, config, services, preparing).await?;
         start_deferred_resources(proxy, config, &services, preparing, retained).await?;
         Ok(services)
     })

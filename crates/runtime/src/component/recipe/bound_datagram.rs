@@ -137,4 +137,7 @@ impl DatagramBindingAuthorization for Source {
         }
         Ok(selection)
     }
+    fn note_stale_selection(&self, expected: NetworkGeneration) -> bool {
+        self.binding.egress.invalidate_generation(expected.0)
+    }
 }

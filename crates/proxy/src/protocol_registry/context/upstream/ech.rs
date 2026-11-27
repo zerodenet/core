@@ -92,6 +92,9 @@ impl RuntimeEchResolver {
             Ok(record) => record,
             Err(source) => {
                 if force != EchForceQuery::Full
+                    && source.kind() != io::ErrorKind::Interrupted
+                    && !(source.kind() == io::ErrorKind::NotConnected
+                        && source.to_string().contains("pool is closing"))
                     && self.egress.generation() == key.egress_generation
                     && self.dns.generation().resolver == key.resolver_generation
                 {

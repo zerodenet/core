@@ -272,7 +272,8 @@ pub(super) async fn run(
                 sockets.bound = None;
                 let settled = sent.as_ref().err().is_some_and(OwnedSendFailure::settled_acquisition);
                 let sent = sent.map_err(OwnedSendFailure::into_error);
-                let logical_rejection = shared.bound_mode && (settled || sent.as_ref().err().is_some_and(failure::logical_rejection));
+                let logical_rejection = (shared.bound_mode && (settled || sent.as_ref().err().is_some_and(failure::logical_rejection)))
+                    || sent.as_ref().err().is_some_and(is_transient_udp_send_error);
                 if sent.is_err() && shared.retain_native_until_peer_exit && !logical_rejection
                     && !shared.scope_cancel.is_cancelled() && !command.logical.cancel.is_cancelled()
                 {
@@ -293,4 +294,37 @@ pub(super) async fn run(
             }
         }
     }
+}
+
+fn is_transient_udp_send_error(error: &EngineError) -> bool {
+    let EngineError::Io(io) = error else {
+        return false;
+    };
+    if matches!(
+        io.kind(),
+        std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::NetworkDown
+            | std::io::ErrorKind::NetworkUnreachable
+            | std::io::ErrorKind::HostUnreachable
+            | std::io::ErrorKind::AddrNotAvailable
+    ) {
+        return true;
+    }
+    #[cfg(unix)]
+    if matches!(
+        io.raw_os_error(),
+        Some(
+            libc::ENETDOWN
+                | libc::ENETUNREACH
+                | libc::EHOSTUNREACH
+                | libc::EADDRNOTAVAIL
+                | libc::ECONNREFUSED
+                | libc::ECONNRESET
+                | libc::ENOBUFS
+        )
+    ) {
+        return true;
+    }
+    false
 }

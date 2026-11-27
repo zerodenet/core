@@ -1,4 +1,5 @@
 //! Exercise real adapter projections, without a second test-only protocol SPI.
+#[cfg(feature = "shadowsocks")]
 use std::sync::Arc;
 
 use super::fixtures::{compiled_in_outbound_leaves, outbound_leaf_name};
@@ -25,6 +26,7 @@ fn standard_packet_metadata_is_cold_without_an_executable_claim() {
     }
 }
 
+#[cfg(feature = "shadowsocks")]
 #[test]
 fn cold_ss_formatter_material_is_inert_and_keeps_one_actual_source_clone_family() {
     use zero_core::Address;

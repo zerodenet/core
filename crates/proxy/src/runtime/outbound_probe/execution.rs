@@ -77,6 +77,7 @@ impl OutboundProbeRuntime {
             ));
         }
 
+        let services = self.services.with_current_snapshot();
         let timeout_ms = self.probe_deadline().timeout_ms;
         match timeout_at(call.deadline(), async {
             let started_at = Instant::now();
@@ -88,7 +89,7 @@ impl OutboundProbeRuntime {
                 ProtocolType::UNKNOWN,
             );
             let outbound = crate::runtime::tcp_dispatch::dispatch_tcp_outbound(
-                self.services.clone().with_service_invocation(
+                services.clone().with_service_invocation(
                     crate::component::direct_bridge::ServiceInvocation {
                         deadline: call.deadline(),
                         caller: Some(call),

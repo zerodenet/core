@@ -85,7 +85,21 @@ pub(super) async fn run(
             }
             received = async { device.carrier.recv(buffer.as_mut().expect("same prepaid wire read").as_mut_bytes()).await },
                 if buffer.is_some() && decode.is_some() && receiving.is_none() => {
-                let (size, sender) = received.inspect_err(|_| device.traffic.error(TrafficPlane::Outer, false))?;
+                let (size, sender) = match received {
+                    Ok(received) => received,
+                    Err(error)
+                        if !super::super::super::carrier::is_background_stopped(&error)
+                            && super::outer_error::is_transient_outer_network_error(&error) =>
+                    {
+                        device.traffic.error(TrafficPlane::Outer, false);
+                        tracing::debug!(endpoint = %device.endpoint, %error, "raw-IP outer UDP receive transient error ignored");
+                        continue;
+                    }
+                    Err(error) => {
+                        device.traffic.error(TrafficPlane::Outer, false);
+                        return Err(EngineError::Io(error));
+                    }
+                };
                 let decode = decode.take().expect("decode workspace preceded original receive");
                 let original = buffer.take().expect("same prepaid wire read").into_packet(size)
                     .map_err(|_original| std::io::Error::new(std::io::ErrorKind::InvalidData, "wire read exceeded its actual allocation"))?;
@@ -188,19 +202,7 @@ async fn network(device: &mut Device, actions: Vec<RawIpAction>) -> Result<(), E
             )
             .into());
         };
-        device
-            .carrier
-            .send(&packet, device.endpoint)
-            .await
-            .inspect_err(|_| {
-                device.traffic.error(TrafficPlane::Outer, true);
-                device.traffic.dropped_reason(
-                    TrafficPlane::Outer,
-                    true,
-                    zero_api::TrafficDropReason::IoFailure,
-                );
-            })?;
-        device.traffic.tx(TrafficPlane::Outer, packet.len());
+        device.send_outer_packet(&packet).await?;
     }
     Ok(())
 }

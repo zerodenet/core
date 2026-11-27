@@ -211,6 +211,9 @@ async fn ordinary_linked_wireguard_truncated_dns_retires_udp_before_actual_frame
 #[path = "wireguard/encrypted.rs"]
 mod encrypted;
 
+#[path = "wireguard/network_recovery.rs"]
+mod network_recovery;
+
 #[path = "wireguard/standalone.rs"]
 mod standalone;
 

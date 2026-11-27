@@ -22,7 +22,7 @@ impl OutboundProbeRuntime {
         let original = Arc::new(ProbeOriginal::default());
         let pending = original.clone();
         let installed = original.clone();
-        let services = self.services.clone();
+        let services = self.services.with_current_snapshot();
         let observed: zero_platform_tokio::contract::BoxFuture<
             'static,
             std::io::Result<Result<(), zero_platform_tokio::contract::ChannelError>>,

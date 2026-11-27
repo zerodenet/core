@@ -128,38 +128,28 @@ pub fn original_connect_error(error: &ChannelError) -> Option<&crate::TcpConnect
 /// rejections preserve their delivery/retry fields and do not affect native
 /// connect retry selection or permit a cleanup failure to be consumed here.
 pub fn is_connect_rejection(error: &ChannelError) -> bool {
-    original_connect_error(error).is_some()
-        || (error.cleanup_failure_receipt().is_none()
-            && matches!(
-                (error.impact, error.stage, error.reason, error.delivery),
-                (
-                    crate::contract::Impact::Session,
-                    Stage::Dial,
-                    Reason::Io,
-                    DeliveryState::NotSubmitted
-                ) | (
-                    crate::contract::Impact::Session,
-                    Stage::Handshake,
-                    Reason::Io,
-                    DeliveryState::NotSubmitted
-                ) | (
-                    crate::contract::Impact::Session,
-                    Stage::Handshake,
-                    Reason::Protocol,
-                    DeliveryState::Unknown
-                ) | (
-                    crate::contract::Impact::Session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted
-                ) | (
-                    crate::contract::Impact::Component,
-                    Stage::Prepare,
-                    Reason::Capacity,
-                    DeliveryState::NotSubmitted
-                )
+    if original_connect_error(error).is_some() {
+        return true;
+    }
+    if error.cleanup_failure_receipt().is_some()
+        || error.stage == Stage::Close
+        || error.reason == Reason::Internal
+    {
+        return false;
+    }
+    error.impact == crate::contract::Impact::Session
+        || crate::contract::network::UpstreamRejection::present_in(error)
+        || matches!(
+            (error.stage, error.reason),
+            (
+                Stage::Prepare | Stage::Dial | Stage::Handshake,
+                Reason::StalePlan
+                    | Reason::Revoked
+                    | Reason::Cancelled
+                    | Reason::Timeout
+                    | Reason::Capacity,
             )
-            && crate::contract::network::UpstreamRejection::present_in(error))
+        )
 }
 /// The actual selected native peer of this same preserved failure. A configured
 /// hostname, logical destination or successful endpoint is never inferred here.

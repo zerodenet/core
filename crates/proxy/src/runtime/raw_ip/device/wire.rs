@@ -240,6 +240,7 @@ impl SharedRawIpDevice {
             forwarded_packets: forwarded_rx,
             closed: closed.clone(),
             health: health.clone(),
+            stale_send_logged: false,
         };
         task.spawn_driver(run_device(driver, ready_tx))?;
         Ok(Arc::new(Self {

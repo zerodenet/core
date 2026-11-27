@@ -337,7 +337,7 @@ fn start_driver(
     guard.attempted = true;
     let spawned = adoption.spawn_driver(
         &shared.tasks,
-        TaskClass::Critical,
+        TaskClass::Auxiliary,
         input,
         move |(io, view)| async move {
             let caller = start.receive().await?;

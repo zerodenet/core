@@ -8,6 +8,8 @@ use tracing::{info, warn};
 use super::state::OrchestrationState;
 use crate::runtime::Proxy;
 
+mod prepare;
+
 impl OrchestrationState {
     pub(super) fn bind_retained_packet_sources(
         proxy: &Proxy,
@@ -262,6 +264,16 @@ impl OrchestrationState {
                     );
                     return;
                 }
+                let committed_services = proxy.tcp_runtime_services_for_snapshot(snapshot.clone());
+                self.inbound_runtime_factory =
+                    crate::runtime::route_runtime::InboundListenerRuntimeFactory::new(
+                        crate::runtime::route_runtime::SharedIngressRuntimeServices::new(
+                            committed_services.clone(),
+                        ),
+                        proxy.inbound_owners.clone(),
+                    );
+                self.preparing_inbounds = Default::default();
+                self.urltest_runtime = crate::groups::UrlTestRuntime::new(committed_services);
                 self.publish_endpoint_facts(proxy);
                 self.publish_network_recovery(
                     proxy,
@@ -309,43 +321,5 @@ impl OrchestrationState {
                     (self.device_retry_delay * 2).min(Duration::from_secs(30));
             }
         }
-    }
-    async fn prepare_network_devices(
-        &mut self,
-        proxy: &Proxy,
-        snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
-    ) -> Result<crate::adapters::devices::PreparedDevices, zero_engine::EngineError> {
-        let config = snapshot.resource_config();
-        proxy
-            .protocols
-            .discard_device_components(config, Instant::now() + Duration::from_secs(5))
-            .await?;
-        proxy
-            .protocols
-            .prepare_device_components(config.clone())
-            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))?;
-        proxy
-            .protocols
-            .start_components(config.clone(), Instant::now() + Duration::from_secs(5))
-            .await?;
-        // Network replacement keeps the configuration Arc, so ordinary
-        // execution still selects the published plan until commit.
-        let services = proxy
-            .tcp_runtime_services_for_snapshot(snapshot.clone())
-            .with_prepared_components()?;
-        proxy
-            .protocols
-            .start_device_resources(
-                config,
-                &services,
-                Instant::now() + Duration::from_secs(5),
-                self.preparing_inbounds.cancellation(),
-            )
-            .await?;
-        Self::bind_retained_packet_sources(proxy, config, &services, &self.active_inbounds)?;
-        proxy
-            .protocols
-            .prepare_devices(config, services, self.preparing_inbounds.cancellation())
-            .await
     }
 }

@@ -3,7 +3,6 @@ use super::*;
 use std::{collections::BTreeSet, sync::Arc};
 
 pub(super) struct TunRecoveryResources {
-    pub(super) dns: zero_dns::DnsReloadResources,
     _sources: budget_barrier::SourceBudgetPauses,
     _first_cold: Arc<crate::component::catalog::ComponentPlan>,
 }
@@ -23,7 +22,8 @@ impl OrchestrationState {
                 .protocols
                 .prepare_restarting_device_components(config.clone(), true)
                 .map_err(|error| error.to_string())?;
-            let dns = restore_dns(proxy, snapshot, Some(&components)).await?;
+            let (dns, mut dns_guard) =
+                prepare_recovery_dns(proxy, snapshot, Some(&components)).await?;
             let changed: BTreeSet<_> = config
                 .inbounds
                 .iter()
@@ -61,6 +61,8 @@ impl OrchestrationState {
                 let services = &services;
                 let preparing = &preparing;
                 let retained = &retained;
+                let dns = &dns;
+                let dns_guard = &mut dns_guard;
                 let result = listeners::reconcile_inbounds_with_before_bind(
                     &proxy.protocols,
                     self.source_dir.as_deref(),
@@ -86,8 +88,15 @@ impl OrchestrationState {
                             .into());
                         }
                         drop(retirement.take());
-                        let services = budget_barrier::restart_tun_and_resources(
-                            proxy, config, services, preparing, retained,
+                        let services = budget_barrier::restart_tun_components(
+                            proxy, config, services, preparing,
+                        )
+                        .await?;
+                        finish_recovery_dns(proxy, dns, dns_guard)
+                            .await
+                            .map_err(std::io::Error::other)?;
+                        budget_barrier::start_deferred_resources(
+                            proxy, config, &services, preparing, retained,
                         )
                         .await?;
                         *output = Some(
@@ -129,7 +138,6 @@ impl OrchestrationState {
             );
             self.device_generation = proxy.egress_interface.generation();
             Ok(TunRecoveryResources {
-                dns,
                 _sources: sources,
                 _first_cold: components,
             })

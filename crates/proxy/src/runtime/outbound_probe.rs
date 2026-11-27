@@ -35,6 +35,7 @@ pub(crate) struct OutboundProbeDeadline {
 struct ProbeKey {
     host_identity: usize,
     config_identity: usize,
+    egress_generation: u64,
     target_tag: String,
     url: String,
     intent: crate::runtime::tcp_dispatch::TcpDispatchIntent,
@@ -159,6 +160,7 @@ impl OutboundProbeRuntime {
         let key = ProbeKey {
             host_identity: Arc::as_ptr(&self.services.protocols().runtime_host()) as usize,
             config_identity: Arc::as_ptr(self.services.snapshot().config()) as usize,
+            egress_generation: self.services.upstream().egress_control().generation(),
             target_tag,
             url: request.url.clone(),
             intent,

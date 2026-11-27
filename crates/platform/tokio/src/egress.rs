@@ -282,6 +282,17 @@ impl EgressInterfaceControl {
         bump_generation(&mut interfaces);
     }
 
+    /// Advance the topology generation at most once for `expected_generation`
+    /// when a bound socket observes same-generation source/interface drift.
+    pub fn invalidate_generation(&self, expected_generation: u64) -> bool {
+        let mut interfaces = self.0.write().expect("egress interface lock poisoned");
+        if interfaces.generation != expected_generation {
+            return false;
+        }
+        bump_generation(&mut interfaces);
+        true
+    }
+
     pub fn current(&self) -> Option<EgressInterface> {
         let interfaces = self.0.read().expect("egress interface lock poisoned");
         interfaces.ipv4.clone().or_else(|| interfaces.ipv6.clone())

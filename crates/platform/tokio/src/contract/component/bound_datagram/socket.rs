@@ -41,6 +41,27 @@ fn stale(stage: Stage) -> ChannelError {
     failure.delivery = DeliveryState::NotSubmitted;
     failure
 }
+fn unsubmitted_send(source: ChannelError) -> ChannelError {
+    let mut failure = ChannelError::new(Stage::Send, source.reason, Impact::Session);
+    failure.component = source.component;
+    failure.session = source.session;
+    failure.delivery = DeliveryState::NotSubmitted;
+    failure.with_source(source)
+}
+#[derive(Debug)]
+struct DatagramSelectionMismatch(String);
+impl fmt::Display for DatagramSelectionMismatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for DatagramSelectionMismatch {}
+fn format_interface(interface: Option<&EgressInterface>) -> String {
+    match interface {
+        Some(iface) => format!("{}#{}", iface.name(), iface.index()),
+        None => "none".to_owned(),
+    }
+}
 /// Observation of the original unique IO view's actual return. Its flag is
 /// set after dropping that IO view, independently of native close/Scope joins.
 #[derive(Clone)]
@@ -120,20 +141,73 @@ impl BoundDatagramSocket {
     }
     fn validate_send(&self, peer: SocketAddr) -> Result<(), ChannelError> {
         let generation = NetworkGeneration(self.selection.generation());
-        self.authorization.check_current(generation)?;
-        let selected = self.authorization.select(peer, generation)?;
-        if selected.generation() != self.selection.generation()
-            || selected.dial_source_address() != self.selection.dial_source_address()
-            || selected.interface() != self.selection.interface()
-            || peer.is_ipv6()
-                != self
-                    .socket()
-                    .local_addr()
-                    .map_err(|source| stale(Stage::Send).with_source(source))?
-                    .is_ipv6()
-            || self.authorization.policy().normalize_peer(peer).ok() != Some(peer)
+        self.authorization
+            .check_current(generation)
+            .map_err(unsubmitted_send)?;
+        let selected = self
+            .authorization
+            .select(peer, generation)
+            .map_err(unsubmitted_send)?;
+        let local_addr = self
+            .socket()
+            .local_addr()
+            .map_err(|source| stale(Stage::Send).with_source(source))?;
+        let normalized_peer = self.authorization.policy().normalize_peer(peer).ok();
+        let generation_changed = selected.generation() != self.selection.generation();
+        let source_changed = selected.dial_source_address() != self.selection.dial_source_address();
+        let interface_changed = selected.interface() != self.selection.interface();
+        let family_changed = peer.is_ipv6() != local_addr.is_ipv6();
+        let peer_rejected = normalized_peer != Some(peer);
+        if generation_changed
+            || source_changed
+            || interface_changed
+            || family_changed
+            || peer_rejected
         {
-            return Err(stale(Stage::Send));
+            let mut invalidated = false;
+            if !generation_changed && (source_changed || interface_changed) {
+                invalidated = self.authorization.note_stale_selection(generation);
+            }
+            let mut reasons = Vec::new();
+            if generation_changed {
+                reasons.push(format!(
+                    "generation {} -> {}",
+                    self.selection.generation(),
+                    selected.generation()
+                ));
+            }
+            if source_changed {
+                reasons.push(format!(
+                    "dial_source {:?} -> {:?} (route_source={:?}, reason={})",
+                    self.selection.dial_source_address(),
+                    selected.dial_source_address(),
+                    selected.route_source(),
+                    selected.binding_reason().as_str()
+                ));
+            }
+            if interface_changed {
+                reasons.push(format!(
+                    "interface {} -> {} (reason={})",
+                    format_interface(self.selection.interface()),
+                    format_interface(selected.interface()),
+                    selected.binding_reason().as_str()
+                ));
+            }
+            if family_changed {
+                reasons.push(format!(
+                    "family local_ipv6={} peer_ipv6={}",
+                    local_addr.is_ipv6(),
+                    peer.is_ipv6()
+                ));
+            }
+            if peer_rejected {
+                reasons.push(format!("peer_policy normalized={normalized_peer:?}"));
+            }
+            let detail = format!(
+                "bound UDP egress selection mismatch for peer {peer} on local {local_addr} (invalidated={invalidated}): {}",
+                reasons.join("; ")
+            );
+            return Err(stale(Stage::Send).with_source(DatagramSelectionMismatch(detail)));
         }
         Ok(())
     }

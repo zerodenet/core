@@ -109,7 +109,6 @@ impl OrchestrationState {
             }
             self.applied_snapshot = previous;
             let previous_config = self.applied_snapshot.resource_config().clone();
-            let mut dns_recovery = None;
             #[cfg(feature = "raw-ip-runtime")]
             let mut _tun_recovery_resources = None;
             #[cfg(feature = "raw-ip-runtime")]
@@ -117,7 +116,6 @@ impl OrchestrationState {
                 let snapshot = self.applied_snapshot.clone();
                 match self.restore_tun_resources(proxy, &snapshot).await {
                     Ok(resources) => {
-                        dns_recovery = Some(resources.dns.clone());
                         _tun_recovery_resources = Some(resources);
                     }
                     Err(error) => {
@@ -142,6 +140,23 @@ impl OrchestrationState {
                     }
                 }
             }
+            let mut staged_dns = None;
+            if recover_dns && can_restore && !tun_recovery {
+                match prepare_recovery_dns(
+                    proxy,
+                    &self.applied_snapshot,
+                    recovery_components.as_ref(),
+                )
+                .await
+                {
+                    Ok(prepared) => staged_dns = Some(prepared),
+                    Err(error) => {
+                        can_restore = false;
+                        acknowledgement
+                            .push_str(&format!("; DNS donor recovery preparation failed: {error}"));
+                    }
+                }
+            }
             if can_restore && !tun_recovery {
                 if let Err(error) = proxy
                     .protocols
@@ -158,18 +173,12 @@ impl OrchestrationState {
                 }
             }
 
-            // Rebuild DNS before peer resolution, retaining its exact token until
-            // the same recovered device graph has actually started and scanned.
-            if recover_dns && can_restore && !tun_recovery {
-                match restore_dns(
-                    proxy,
-                    &self.applied_snapshot,
-                    recovery_components.as_deref(),
-                )
-                .await
-                {
-                    Ok(token) => dns_recovery = Some(token),
-                    Err(error) => {
+            // Publish recovered DNS backends right after StopOld/BuildNew so
+            // WireGuard domain-peer bootstrap and live queries never hit
+            // closed DoH pools or an uncommitted journal allocator.
+            if let Some((token, mut guard)) = staged_dns.take() {
+                if can_restore {
+                    if let Err(error) = finish_recovery_dns(proxy, &token, &mut guard).await {
                         can_restore = false;
                         acknowledgement
                             .push_str(&format!("; DNS recovery remains unconfirmed: {error}"));
@@ -302,14 +311,9 @@ impl OrchestrationState {
                         )
                         .await
                         .map_err(|error| error.to_string())?;
-                    proxy.protocols.commit_components(&previous_config, || {
-                        dns_recovery.as_ref().map_or(Ok(()), |token| {
-                            proxy
-                                .resolver
-                                .commit_reload_resources(token)
-                                .map_err(|error| error.to_string())
-                        })
-                    })
+                    proxy
+                        .protocols
+                        .commit_components(&previous_config, || Ok(()))
                 }
                 .await;
                 match result {
@@ -369,6 +373,14 @@ impl OrchestrationState {
             }
             if can_restore {
                 self.inbound_runtime_factory = restored_runtime.without_preparing();
+                self.urltest_runtime = UrlTestRuntime::new(
+                    proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone()),
+                );
+                listeners::reconcile_urltests(
+                    &self.urltest_runtime,
+                    &self.shutdown_rx,
+                    &mut self.urltests,
+                );
             }
             self.publish_endpoint_facts(proxy);
             self.publish_rejected_endpoints(proxy, rejected, &acknowledgement);
@@ -377,11 +389,34 @@ impl OrchestrationState {
     }
 }
 
-async fn restore_dns(
-    proxy: &Proxy,
+pub(super) struct RecoveryDnsGuard<'a> {
+    dns: &'a zero_dns::DnsSystem,
+    armed: bool,
+}
+
+impl<'a> RecoveryDnsGuard<'a> {
+    fn new(dns: &'a zero_dns::DnsSystem) -> Self {
+        Self { dns, armed: true }
+    }
+
+    pub(super) fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for RecoveryDnsGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.dns.discard_prepared_reload();
+        }
+    }
+}
+
+pub(super) async fn prepare_recovery_dns<'a>(
+    proxy: &'a Proxy,
     snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
-    components: Option<&crate::component::catalog::ComponentPlan>,
-) -> Result<zero_dns::DnsReloadResources, String> {
+    components: Option<&std::sync::Arc<crate::component::catalog::ComponentPlan>>,
+) -> Result<(zero_dns::DnsReloadResources, RecoveryDnsGuard<'a>), String> {
     let config = snapshot.resource_config();
     let dispatch = snapshot.dns_dispatch();
     let token = proxy
@@ -399,19 +434,51 @@ async fn restore_dns(
             },
         )
         .map_err(|error| error.to_string())?;
+    let guard = RecoveryDnsGuard::new(&proxy.resolver);
     proxy
         .resolver
         .prepare_fake_ip_journal_limit(&token, config.runtime.effective_file_read_max_bytes())
         .map_err(|error| error.to_string())?;
+    if let Some(plan) = components {
+        let replaced = proxy
+            .protocols
+            .runtime_host()
+            .components()
+            .replacement_instances(plan)
+            .map_err(|error| error.to_string())?;
+        proxy
+            .resolver
+            .prepare_donor_pause(&token, &replaced)
+            .map_err(|error| error.to_string())?;
+        let end = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        proxy
+            .protocols
+            .drive_component_supervision(proxy.resolver.retire_paused_donors(&token, end))
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    Ok((token, guard))
+}
+
+pub(super) async fn finish_recovery_dns(
+    proxy: &Proxy,
+    token: &zero_dns::DnsReloadResources,
+    guard: &mut RecoveryDnsGuard<'_>,
+) -> Result<(), String> {
     proxy
         .resolver
         .retire_reload_resources(
-            &token,
+            token,
             tokio::time::Instant::now() + std::time::Duration::from_secs(5),
         )
         .await
         .map_err(|error| error.to_string())?;
-    Ok(token)
+    proxy
+        .resolver
+        .commit_reload_resources(token)
+        .map_err(|error| error.to_string())?;
+    guard.disarm();
+    Ok(())
 }
 
 /// Only physically closed, actually published pre-existing faults permit a

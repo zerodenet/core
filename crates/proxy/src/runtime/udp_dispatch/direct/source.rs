@@ -232,6 +232,9 @@ impl DatagramBindingAuthorization for DirectSocketSource {
         }
         Ok(selection)
     }
+    fn note_stale_selection(&self, expected: NetworkGeneration) -> bool {
+        self.egress.invalidate_generation(expected.0)
+    }
 }
 fn unavailable() -> ChannelError {
     error(Reason::Revoked, "actual Direct host is unavailable").with_source(std::io::Error::new(

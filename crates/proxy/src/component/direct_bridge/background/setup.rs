@@ -55,7 +55,7 @@ impl Candidates {
             .map_err(Arc::new);
             let fault = result.as_ref().err().cloned();
             if let Some(source) = fault.as_ref().filter(|source| {
-                zero_platform_tokio::controlled_carrier::original_connect_error(source).is_some()
+                zero_platform_tokio::controlled_carrier::is_connect_rejection(source)
             }) {
                 result_owner.retain_connect_rejection_result(&caller, source.clone())?;
             }
@@ -73,9 +73,9 @@ impl Candidates {
             }
         }).await.map_err(|source|invalid(Reason::Timeout,"Direct Service setup absolute deadline").with_source(source))??;
         let original_error = outcome.as_ref().err().cloned();
-        let received_rejection = original_error.as_ref().filter(|source| {
-            zero_platform_tokio::controlled_carrier::original_connect_error(source).is_some()
-        });
+        let received_rejection = original_error
+            .as_ref()
+            .filter(|source| zero_platform_tokio::controlled_carrier::is_connect_rejection(source));
         let joined = with_deadline(self.request.context.deadline, async {
             match received_rejection {
                 Some(source) => adoption.accept_auxiliary_connect_rejection(source).await,

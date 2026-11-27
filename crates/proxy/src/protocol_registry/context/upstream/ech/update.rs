@@ -179,7 +179,14 @@ fn record(
                 },
             failure: None,
         }),
-        Err(source) if force == EchForceQuery::Full => Err(Arc::new(source)),
+        Err(source)
+            if force == EchForceQuery::Full
+                || source.kind() == io::ErrorKind::Interrupted
+                || (source.kind() == io::ErrorKind::NotConnected
+                    && source.to_string().contains("pool is closing")) =>
+        {
+            Err(Arc::new(source))
+        }
         Err(source) => Ok(CacheRecord {
             material: None,
             expires: Instant::now() + DEFAULT_TTL,

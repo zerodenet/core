@@ -15,6 +15,7 @@ use zero_stack::{
     client_udp::ClientUdpStack, packet, ClientTcpStack, FragmentReassembler, OwnedFragmentOutcome,
 };
 mod native;
+mod outer_error;
 
 pub(super) struct Device {
     pub(super) users: Option<Arc<crate::runtime::packet_flow::FlowUsers>>,
@@ -31,6 +32,7 @@ pub(super) struct Device {
     pub(super) forwarded_packets: mpsc::Receiver<ForwardedPackets>,
     pub(super) closed: Arc<AtomicBool>,
     pub(super) health: Arc<Mutex<DeviceHealth>>,
+    pub(super) stale_send_logged: bool,
 }
 
 pub(super) async fn run_device(
@@ -112,7 +114,21 @@ async fn run_device_inner(
                 }
             }
             received = device.carrier.recv(&mut wire) => {
-                let (size, sender) = received.inspect_err(|_| device.traffic.error(TrafficPlane::Outer, false)).map_err(EngineError::Io)?;
+                let (size, sender) = match received {
+                    Ok(received) => received,
+                    Err(error)
+                        if !super::super::carrier::is_background_stopped(&error)
+                            && outer_error::is_transient_outer_network_error(&error) =>
+                    {
+                        device.traffic.error(TrafficPlane::Outer, false);
+                        tracing::debug!(endpoint = %device.endpoint, %error, "raw-IP outer UDP receive transient error ignored");
+                        continue;
+                    }
+                    Err(error) => {
+                        device.traffic.error(TrafficPlane::Outer, false);
+                        return Err(EngineError::Io(error));
+                    }
+                };
                 device.traffic.rx(TrafficPlane::Outer, size, false);
                 let Ok((actions, authenticated)) = device.tunnel
                     .receive_datagram_with_authentication(sender, &wire[..size]) else {
@@ -165,23 +181,71 @@ impl Device {
         }
     }
 
+    pub(super) async fn send_outer_packet(&mut self, packet: &[u8]) -> Result<(), EngineError> {
+        match self.carrier.send(packet, self.endpoint).await {
+            Ok(()) => {
+                self.traffic.tx(TrafficPlane::Outer, packet.len());
+                Ok(())
+            }
+            Err(error) if super::super::carrier::is_background_stopped(&error) => {
+                Err(EngineError::Io(error))
+            }
+            Err(error) if outer_error::is_unsubmitted_stale_wire_error(&error) => {
+                self.traffic.dropped_reason(
+                    TrafficPlane::Outer,
+                    true,
+                    zero_api::TrafficDropReason::IoFailure,
+                );
+                if !self.stale_send_logged {
+                    self.stale_send_logged = true;
+                    tracing::warn!(
+                        endpoint = %self.endpoint,
+                        %error,
+                        sources = %crate::logging::sources::Sources(&error),
+                        "raw-IP outer UDP binding rejected unsubmitted stale packet; dropping packet"
+                    );
+                } else {
+                    tracing::debug!(
+                        endpoint = %self.endpoint,
+                        %error,
+                        sources = %crate::logging::sources::Sources(&error),
+                        "raw-IP outer UDP binding dropped unsubmitted stale packet"
+                    );
+                }
+                Ok(())
+            }
+            Err(error) if outer_error::is_transient_outer_network_error(&error) => {
+                self.traffic.error(TrafficPlane::Outer, true);
+                self.traffic.dropped_reason(
+                    TrafficPlane::Outer,
+                    true,
+                    zero_api::TrafficDropReason::IoFailure,
+                );
+                tracing::debug!(
+                    endpoint = %self.endpoint,
+                    %error,
+                    sources = %crate::logging::sources::Sources(&error),
+                    "raw-IP outer UDP send dropped on transient network error"
+                );
+                Ok(())
+            }
+            Err(error) => {
+                self.traffic.error(TrafficPlane::Outer, true);
+                self.traffic.dropped_reason(
+                    TrafficPlane::Outer,
+                    true,
+                    zero_api::TrafficDropReason::IoFailure,
+                );
+                Err(EngineError::Io(error))
+            }
+        }
+    }
+
     async fn apply(&mut self, actions: Vec<RawIpAction>) -> Result<(), EngineError> {
         for action in actions {
             match action {
                 RawIpAction::SendNetwork(packet) => {
-                    self.carrier
-                        .send(&packet, self.endpoint)
-                        .await
-                        .inspect_err(|_| {
-                            self.traffic.error(TrafficPlane::Outer, true);
-                            self.traffic.dropped_reason(
-                                TrafficPlane::Outer,
-                                true,
-                                zero_api::TrafficDropReason::IoFailure,
-                            );
-                        })
-                        .map_err(EngineError::Io)?;
-                    self.traffic.tx(TrafficPlane::Outer, packet.len());
+                    self.send_outer_packet(&packet).await?;
                 }
                 RawIpAction::ReceiveIp { packet, source } => {
                     if self.tunnel.allows_source(source) {

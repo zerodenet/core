@@ -13,7 +13,7 @@ mod logging;
 #[cfg(feature = "raw-ip-runtime")]
 mod network_change;
 mod pending_dns;
-mod reconcile;
+pub(super) mod reconcile;
 pub(in crate::runtime) use reconcile::budget_barrier::{
     carrier_budget_changed, source_total_resources, ss_source_budget_changed,
 };

@@ -130,7 +130,9 @@ async fn actual_direct_tcp_udp_ready_candidate_cannot_forward_before_commit() {
     // This address comes from the original granted native view. No free-port
     // probe, dropped reservation, or post-close rebind serves as evidence.
     let address = *owner.original_listener_address.get().unwrap();
-    let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let udp = UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0))
+        .await
+        .unwrap();
     let prior_join = owner.accepted_join_for_test().map(|joined| joined.id());
     udp.send_to(b"blocked-udp", address).await.unwrap();
     tokio::time::timeout(Duration::from_secs(3), async {

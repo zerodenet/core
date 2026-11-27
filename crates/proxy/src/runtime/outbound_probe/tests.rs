@@ -10,18 +10,24 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn shared_probe_identity_separates_policy_and_diagnostic_intents() {
-    let key = |intent| ProbeKey {
+    let key = |intent, egress_generation| ProbeKey {
         host_identity: 11,
         config_identity: 7,
+        egress_generation,
         target_tag: "node-a".to_owned(),
         url: "https://example.com/generate_204".to_owned(),
         intent,
     };
 
     assert_ne!(
-        key(TcpDispatchIntent::PolicyProbe),
-        key(TcpDispatchIntent::DiagnosticProbe),
+        key(TcpDispatchIntent::PolicyProbe, 1),
+        key(TcpDispatchIntent::DiagnosticProbe, 1),
         "read-only diagnostics must not join a policy probe that can restore candidate eligibility"
+    );
+    assert_ne!(
+        key(TcpDispatchIntent::PolicyProbe, 1),
+        key(TcpDispatchIntent::PolicyProbe, 2),
+        "post-switch probes must not coalesce onto a pre-switch network generation"
     );
 }
 
@@ -30,6 +36,7 @@ fn dropping_the_last_shared_probe_waiter_removes_the_pending_entry() {
     let key = ProbeKey {
         host_identity: 11,
         config_identity: 7,
+        egress_generation: 1,
         target_tag: "node-a".to_owned(),
         url: "https://example.com/generate_204".to_owned(),
         intent: TcpDispatchIntent::DiagnosticProbe,

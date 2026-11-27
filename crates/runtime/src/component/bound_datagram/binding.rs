@@ -87,4 +87,10 @@ impl DatagramBindingAuthorization for Binding {
         }
         Ok(selected)
     }
+    fn note_stale_selection(&self, expected: NetworkGeneration) -> bool {
+        if expected != self.generation || self.revoked.load(Ordering::Acquire) {
+            return false;
+        }
+        self.source.note_stale_selection(expected)
+    }
 }

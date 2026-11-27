@@ -103,7 +103,11 @@ pub(crate) fn start(
 async fn receive(prepared: NativePreparation) -> std::io::Result<()> {
     let mut bytes = vec![0; 65535];
     loop {
-        let (size, peer) = prepared.socket.receive(&mut bytes).await?;
+        let (size, peer) = match prepared.socket.receive(&mut bytes).await {
+            Ok(received) => received,
+            Err(error) if is_transient_udp_recv_error(&error) => continue,
+            Err(error) => return Err(error),
+        };
         if peer != prepared.endpoint {
             continue;
         }
@@ -117,4 +121,34 @@ async fn receive(prepared: NativePreparation) -> std::io::Result<()> {
         // lack of a current subscriber never fabricates native closure.
         let _ = prepared.responses.deliver(response, &prepared.subscribers);
     }
+}
+
+fn is_transient_udp_recv_error(error: &std::io::Error) -> bool {
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::NetworkDown
+            | std::io::ErrorKind::NetworkUnreachable
+            | std::io::ErrorKind::HostUnreachable
+            | std::io::ErrorKind::AddrNotAvailable
+    ) {
+        return true;
+    }
+    #[cfg(unix)]
+    if matches!(
+        error.raw_os_error(),
+        Some(
+            libc::ENETDOWN
+                | libc::ENETUNREACH
+                | libc::EHOSTUNREACH
+                | libc::EADDRNOTAVAIL
+                | libc::ECONNREFUSED
+                | libc::ECONNRESET
+                | libc::ENOBUFS
+        )
+    ) {
+        return true;
+    }
+    false
 }

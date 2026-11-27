@@ -50,7 +50,14 @@ impl DirectUdpSockets {
             // Round robin survives cancelled receives and also advances for
             // errors/untrusted peers, so a noisy socket cannot monopolize I/O.
             receiver.cursor = (index + 1) % self.sockets.len();
-            let (size, sender) = result?;
+            let (size, sender) = match result {
+                Ok(received) => received,
+                Err(error) if is_transient_udp_recv_error(&error) => {
+                    tokio::task::yield_now().await;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let entry = &self.sockets[index];
             if self.receive_is_current(entry) {
                 if let Ok(sender) = entry.binding.policy.dial_policy.normalize_peer(sender) {
@@ -103,4 +110,34 @@ impl DirectUdpSockets {
         // receive in their existing select loop before mutating the socket set.
         Poll::Pending
     }
+}
+
+fn is_transient_udp_recv_error(error: &io::Error) -> bool {
+    if matches!(
+        error.kind(),
+        io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionRefused
+            | io::ErrorKind::NetworkDown
+            | io::ErrorKind::NetworkUnreachable
+            | io::ErrorKind::HostUnreachable
+            | io::ErrorKind::AddrNotAvailable
+    ) {
+        return true;
+    }
+    #[cfg(unix)]
+    if matches!(
+        error.raw_os_error(),
+        Some(
+            libc::ENETDOWN
+                | libc::ENETUNREACH
+                | libc::EHOSTUNREACH
+                | libc::EADDRNOTAVAIL
+                | libc::ECONNREFUSED
+                | libc::ECONNRESET
+                | libc::ENOBUFS
+        )
+    ) {
+        return true;
+    }
+    false
 }
