@@ -60,6 +60,25 @@ impl UpstreamAssociationTransport<DatagramAssociationTarget> for NativeAssociati
         let slot = target.current_slot(&execution)?;
         // Reserve before any role admission can open its native TCP carrier.
         let reservation = execution.reserve_datagram().map_err(legacy)?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(native) = execution
+            .invocation
+            .as_ref()
+            .and_then(|call| call.caller_native.as_ref())
+        {
+            native.check_open().map_err(legacy)?;
+            let caller = native.caller_witness().ok_or_else(|| {
+                legacy(ChannelError::new(
+                    Stage::Prepare,
+                    Reason::Revoked,
+                    Impact::Session,
+                ))
+            })?;
+            let registration = reservation.registration(&caller).map_err(legacy)?;
+            native
+                .observe_logical_datagram(registration)
+                .map_err(legacy)?;
+        }
         let association = reservation.association();
         let opening = reservation
             .begin_open(

@@ -33,14 +33,14 @@ async fn opaque_client_session_isolation_survives_the_real_shared_owner() {
         CancellationToken::new(),
         Some(u64::MAX),
     );
-    let same = send(&mut tx1, &first, b"first scope").await;
+    let (same, same_bind) = send_with_original(&mut tx1, &first, b"first scope").await;
     assert_eq!(send(&mut tx2, &second, b"same scope").await, same);
-    let isolated = send(&mut tx3, &third, b"different scope").await;
+    let (isolated, isolated_bind) = send_with_original(&mut tx3, &third, b"different scope").await;
     assert_ne!(isolated, same);
     assert!(ctl1.wait_closed(deadline()).await.unwrap().is_complete());
-    assert!(tokio::net::UdpSocket::bind(same).await.is_err());
+    assert!(tokio::net::UdpSocket::bind(same_bind).await.is_err());
     assert!(ctl2.wait_closed(deadline()).await.unwrap().is_complete());
-    tokio::net::UdpSocket::bind(same).await.unwrap();
+    tokio::net::UdpSocket::bind(same_bind).await.unwrap();
     third.send_to(b"still live", isolated).await.unwrap();
     let (bytes, guard) = rx3.recv().await.unwrap().unwrap();
     assert_eq!(bytes, b"still live");
@@ -53,5 +53,5 @@ async fn opaque_client_session_isolation_survives_the_real_shared_owner() {
         report.closed_io,
         vec!["explicitly closed 2 original Direct UDP sockets"]
     );
-    tokio::net::UdpSocket::bind(isolated).await.unwrap();
+    tokio::net::UdpSocket::bind(isolated_bind).await.unwrap();
 }

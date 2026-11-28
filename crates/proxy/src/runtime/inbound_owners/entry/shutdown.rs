@@ -38,6 +38,30 @@ impl InboundOwner {
                 };
                 self.retain_resource_failures(&mut report);
                 let complete = report.is_complete();
+                let unfinished_detail = (!complete)
+                    .then(|| {
+                        report
+                            .unfinished
+                            .iter()
+                            .map(|item| match item {
+                                zero_platform_tokio::contract::lifecycle::Unfinished::Task(id) => {
+                                    format!("task {}", id.0)
+                                }
+                                zero_platform_tokio::contract::lifecycle::Unfinished::Io(label)
+                                | zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
+                                    label,
+                                )
+                                | zero_platform_tokio::contract::lifecycle::Unfinished::ReliableState(
+                                    label,
+                                )
+                                | zero_platform_tokio::contract::lifecycle::Unfinished::Recovery(
+                                    label,
+                                ) => label.clone(),
+                            })
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    })
+                    .filter(|detail| !detail.is_empty());
                 // A current unfinished resource is represented by its actual
                 // retained owner/stopped flag. Do not grow deadline history
                 // on each retry or keep an old timeout after confirmed close.
@@ -49,11 +73,20 @@ impl InboundOwner {
                 if complete {
                     resource.stopped.store(true, Ordering::Release);
                 } else {
+                    tracing::warn!(
+                        source_identity = ?self.identity,
+                        resource_identity = ?resource.identity,
+                        unfinished = unfinished_detail.as_deref().unwrap_or("unknown"),
+                        "inbound resource cleanup remains unconfirmed"
+                    );
                     failure.get_or_insert_with(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            "inbound carrier cleanup remains unconfirmed",
-                        )
+                        let message = match unfinished_detail {
+                            Some(detail) => {
+                                format!("inbound carrier cleanup remains unconfirmed: {detail}")
+                            }
+                            None => "inbound carrier cleanup remains unconfirmed".into(),
+                        };
+                        std::io::Error::new(std::io::ErrorKind::TimedOut, message)
                     });
                 }
             }

@@ -224,18 +224,23 @@ impl Proxy {
             )));
         }
         let current = self.tun_control.lock().unwrap().as_ref().map(|control| {
-            (control.completion.clone(), {
-                #[cfg(feature = "raw-ip-runtime")]
+            (
+                control.id,
+                *control.shutdown.borrow(),
+                control.completion.clone(),
                 {
-                    control.budget_recovery.clone()
-                }
-                #[cfg(not(feature = "raw-ip-runtime"))]
-                {
-                    None::<()>
-                }
-            })
+                    #[cfg(feature = "raw-ip-runtime")]
+                    {
+                        control.budget_recovery.clone()
+                    }
+                    #[cfg(not(feature = "raw-ip-runtime"))]
+                    {
+                        None::<()>
+                    }
+                },
+            )
         });
-        if let Some((completion, recovery)) = current {
+        if let Some((id, stopping, completion, recovery)) = current {
             #[cfg(feature = "raw-ip-runtime")]
             let replacing = prepared.recovery.as_ref().is_some_and(|expected| {
                 recovery
@@ -244,13 +249,63 @@ impl Proxy {
             }) && completion.resources_complete().await;
             #[cfg(not(feature = "raw-ip-runtime"))]
             let replacing = {
-                let _ = (completion, recovery);
+                let _ = &recovery;
                 false
             };
+            #[cfg(feature = "raw-ip-runtime")]
+            let no_budget_recovery = prepared.recovery.is_none() && recovery.is_none();
+            #[cfg(not(feature = "raw-ip-runtime"))]
+            let no_budget_recovery = true;
             if !replacing {
-                return Err(
-                    io::Error::new(io::ErrorKind::AlreadyExists, "TUN is already running").into(),
-                );
+                if stopping && no_budget_recovery {
+                    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+                    let _ = completion.wait_main(deadline).await;
+                    let _ = completion.wait_routes(deadline).await;
+                    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+                    let _ = completion.wait_native(deadline).await;
+                    if completion.resources_complete().await {
+                        let retired = {
+                            let mut control = self.tun_control.lock().unwrap();
+                            if control.as_ref().is_some_and(|actual| {
+                                actual.id == id && {
+                                    #[cfg(feature = "raw-ip-runtime")]
+                                    {
+                                        actual.budget_recovery.is_none()
+                                    }
+                                    #[cfg(not(feature = "raw-ip-runtime"))]
+                                    {
+                                        true
+                                    }
+                                }
+                            }) {
+                                control.take()
+                            } else {
+                                None
+                            }
+                        };
+                        drop(retired);
+                        clear_egress_after_route_cleanup(&self.egress_interface, true);
+                        clear_matching_tun_info(self, id);
+                        self.tun_last_error.lock().unwrap().take();
+                    } else {
+                        let message = match self.tun_last_error.lock().unwrap().as_deref() {
+                            Some(detail) => format!(
+                                "previous TUN cleanup remains unconfirmed ({detail}); cannot start a new TUN instance"
+                            ),
+                            None => {
+                                "previous TUN cleanup remains unconfirmed; cannot start a new TUN instance"
+                                    .to_owned()
+                            }
+                        };
+                        return Err(io::Error::new(io::ErrorKind::WouldBlock, message).into());
+                    }
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "TUN is already running",
+                    )
+                    .into());
+                }
             }
         } else {
             #[cfg(feature = "raw-ip-runtime")]

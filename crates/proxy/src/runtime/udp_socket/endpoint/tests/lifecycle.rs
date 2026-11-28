@@ -52,7 +52,7 @@ async fn actual_scope_pending_exit_retains_original_socket_across_cancelled_shut
         target.local_addr().unwrap(),
         CancellationToken::new(),
     );
-    let original = send(&mut tx, &target, b"original fd").await;
+    let (_, original) = send_with_original(&mut tx, &target, b"original fd").await;
     let same_state = owner.shared.clone();
     owner.shared.scope_cancel.cancel();
     let io_guard = same_state.sockets.lock().await;
@@ -149,7 +149,7 @@ async fn actual_scope_task_waiting_for_logical_cleanup_cannot_deadlock_native_cl
         target.local_addr().unwrap(),
         CancellationToken::new(),
     );
-    let original = send(&mut tx, &target, b"actual pending cleanup").await;
+    let (_, original) = send_with_original(&mut tx, &target, b"actual pending cleanup").await;
     let mut waiting = Box::pin(control.wait_closed(deadline()));
     poll_fn(|cx| {
         assert!(waiting.as_mut().poll(cx).is_pending());

@@ -10,7 +10,9 @@ use zero_runtime::configuration::{ControlBudget, ControlBudgetLimits, ControlCha
 struct ObservedWrite {
     io: TcpStream,
     pending: Option<tokio::sync::oneshot::Sender<()>>,
+    frame_written: std::sync::Arc<tokio::sync::Notify>,
     headers: usize,
+    suspended_after_pending: bool,
 }
 impl AsyncWrite for ObservedWrite {
     fn poll_write(
@@ -18,10 +20,24 @@ impl AsyncWrite for ObservedWrite {
         cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if self.suspended_after_pending {
+            // Keep this same write future at its observed suspension until shutdown
+            // drops it. This does not claim that the OS socket stays unwritable.
+            return Poll::Pending;
+        }
+        let is_body = self.headers == 0;
         let polled = Pin::new(&mut self.io).poll_write(cx, bytes);
         match &polled {
-            Poll::Ready(Ok(written)) => self.headers = self.headers.saturating_sub(*written),
+            Poll::Ready(Ok(written)) => {
+                if is_body && !bytes.is_empty() && *written == bytes.len() {
+                    // write_all has no remaining bytes in this real body frame.
+                    self.frame_written.notify_one();
+                }
+                self.headers = self.headers.saturating_sub(*written);
+            }
             Poll::Pending if self.headers == 0 => {
+                // Arm only after the original TCP write actually returned Pending.
+                self.suspended_after_pending = true;
                 if let Some(pending) = self.pending.take() {
                     let _ = pending.send(());
                 }
@@ -39,6 +55,8 @@ impl AsyncWrite for ObservedWrite {
 }
 #[tokio::test]
 async fn sse_original_frame_write_and_queue_hold_shrink_busy_until_actual_worker_join() {
+    let phase = std::cell::Cell::new("connect original loopback TCP");
+    let emitted = std::cell::Cell::new(0);
     tokio::time::timeout(Duration::from_secs(3), async {
         let engine = engine();
         let subscriber = engine
@@ -64,11 +82,14 @@ async fn sse_original_frame_write_and_queue_hold_shrink_busy_until_actual_worker
         let budget = ControlBudget::new(limits);
         let connection = budget.reserve(ControlCharge::Connection).unwrap();
         let local = connection.connection_budget().unwrap();
-        let (pending, writing) = tokio::sync::oneshot::channel();
+        let (pending, mut writing) = tokio::sync::oneshot::channel();
+        let frame_written = std::sync::Arc::new(tokio::sync::Notify::new());
         let server = ObservedWrite {
             io: server,
             pending: Some(pending),
+            frame_written: frame_written.clone(),
             headers: super::super::SSE_HEADERS.len(),
+            suspended_after_pending: false,
         };
         let (stop, stopped) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(super::super::run_sse_stream_with_budget(
@@ -81,6 +102,7 @@ async fn sse_original_frame_write_and_queue_hold_shrink_busy_until_actual_worker
             local,
         ));
         let mut client = BufReader::new(client);
+        phase.set("read original SSE headers");
         loop {
             let mut line = String::new();
             assert!(client.read_line(&mut line).await.unwrap() > 0);
@@ -88,28 +110,59 @@ async fn sse_original_frame_write_and_queue_hold_shrink_busy_until_actual_worker
                 break;
             }
         }
-        for index in 0..3 {
+        phase.set("observe original TCP write Pending while pumping real frames");
+        // At most 16 MiB of real payload, stopping at the first actual Pending.
+        // Await each real frame completion before emitting another so subscriber
+        // admission cannot silently drop a fast fixed burst instead of filling TCP.
+        const MAX_PUMP_EVENTS: usize = 128;
+        let mut observed_pending = false;
+        for index in 0..MAX_PUMP_EVENTS {
             engine.emit(RawApiEvent::new(
                 format!("same-{index}"),
                 "test.local-frame",
                 0,
                 json!({"payload":"a".repeat(128*1024)}),
             ));
+            emitted.set(index + 1);
+            tokio::select! {
+                biased;
+                result = &mut writing => {
+                    result.expect("the original writer must report its actual Pending");
+                    observed_pending = true;
+                    break;
+                }
+                _ = frame_written.notified() => {}
+            }
         }
-        writing.await.unwrap(); // The actual original TCP writer returned Pending.
+        assert!(
+            observed_pending,
+            "original TCP accepted all {MAX_PUMP_EVENTS} real frames without Pending"
+        );
+        phase.set("observe two real local frame reservations");
+        // A frame was emitted only after its predecessor completed on the real TCP.
+        // Queue a real event behind that suspended original, not a synthetic credit.
+        engine.emit(RawApiEvent::new(
+            "queued-after-original-pending",
+            "test.local-frame",
+            0,
+            json!({"payload":"b".repeat(128*1024)}),
+        ));
         let mut lower = limits;
         lower.messages.sse_event_frames = 1;
         loop {
-            match budget.prepare(lower) {
-                Err(error) => {
-                    assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
-                    break;
-                }
-                Ok(candidate) => candidate.retire().unwrap(),
+            // Preparing a candidate would temporarily cap the second frame at one.
+            // Observe the actual holders without changing their admission limits.
+            if let Err(error) = budget.validate(lower) {
+                assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+                break;
             }
             tokio::task::yield_now().await;
         }
+        assert!(
+            matches!(budget.prepare(lower), Err(error) if error.kind() == io::ErrorKind::WouldBlock)
+        );
         assert!(budget.usage().queued_event_bytes > 0);
+        phase.set("cancel and join the original SSE worker");
         stop.send(()).unwrap();
         tokio::time::timeout(Duration::from_secs(1), task)
             .await
@@ -123,7 +176,13 @@ async fn sse_original_frame_write_and_queue_hold_shrink_busy_until_actual_worker
         budget.confirm_released().unwrap();
     })
     .await
-    .unwrap();
+    .unwrap_or_else(|error| {
+        panic!(
+            "{error}: SSE fixture phase: {}; emitted {} real frames",
+            phase.get(),
+            emitted.get()
+        )
+    });
 }
 
 #[tokio::test]

@@ -40,16 +40,6 @@ async fn execute_prepared_udp_outbound(
     match prepared {
         #[cfg(feature = "managed-stream-runtime")]
         PreparedUdpOutbound::DatagramRelay(prepared) => {
-            #[cfg(feature = "raw-ip-runtime")]
-            if let Some(native) = dispatch.runtime.native() {
-                native
-                    .declare_gateway(false)
-                    .map_err(|source| FlowFailure {
-                        stage: "native_gateway_admission",
-                        error: std::io::Error::other(source).into(),
-                        upstream: None,
-                    })?;
-            }
             let tag = prepared.target.tag().to_owned();
             let upstream = prepared
                 .target
@@ -124,22 +114,13 @@ pub(crate) fn execute_prepared_udp_candidate<'a>(
 ) -> BoxFuture<'a, Result<FlowStartResult, FlowFailure>> {
     Box::pin(async move {
         #[cfg(feature = "raw-ip-runtime")]
-        if let Some(native) = dispatch.runtime.native() {
-            let covered = match &prepared {
-                PreparedUdpLeafCandidate::Block { .. } | PreparedUdpLeafCandidate::Direct(_) => {
-                    // TUN QUIC sniffing sets `session.target` to the recovered
-                    // SNI domain while preserving the original literal IP in
-                    // `session.direct_target`, so no DNS lookup occurs.
-                    !matches!(
-                        session.effective_direct_target(),
-                        zero_core::Address::Domain(_)
-                    )
-                }
-                #[cfg(feature = "upstream-association-runtime")]
-                PreparedUdpLeafCandidate::Datagram(_) => false,
-                #[cfg(feature = "managed-stream-runtime")]
-                PreparedUdpLeafCandidate::DatagramFlow(_) => false,
-            } && dispatch.bound_direct_registration().is_some();
+        if let (Some(native), PreparedUdpLeafCandidate::Direct(_)) =
+            (dispatch.runtime.native(), &prepared)
+        {
+            // Literal-IP Direct uses the peer-bound datagram provider, while
+            // Fake-IP / domain Direct additionally binds its DnsResolutionCall
+            // in `resolve_direct_targets` before any packet can be sent.
+            let covered = dispatch.bound_direct_registration().is_some();
             native
                 .declare_gateway(covered)
                 .map_err(|source| FlowFailure {

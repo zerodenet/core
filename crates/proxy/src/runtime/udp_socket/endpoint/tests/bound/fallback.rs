@@ -172,8 +172,10 @@ async fn sealed_settled_original_bind_failure_falls_back_before_the_single_real_
         .unwrap();
     assert_eq!(&bytes[..size], b"sent once");
     assert!(original.is_ipv4());
-    assert_eq!(sent.local.unwrap().port(), original.port());
-    assert!(UdpSocket::bind(original).await.is_err());
+    let original_bind = sent.local.expect("same original socket local_addr");
+    assert_eq!(original_bind.port(), original.port());
+    assert_eq!(original_bind.is_ipv4(), original.is_ipv4());
+    assert!(UdpSocket::bind(original_bind).await.is_err());
     // With native cap one, the successful second original cannot exist until
     // the first acquisition's original is really closed/reaped by this owner.
     assert_no_packet(&peer).await;
@@ -201,7 +203,7 @@ async fn sealed_settled_original_bind_failure_falls_back_before_the_single_real_
         .closed()
         .unwrap()
         .matches(&fixture.registration));
-    UdpSocket::bind(original).await.unwrap();
+    UdpSocket::bind(original_bind).await.unwrap();
 }
 
 #[tokio::test]

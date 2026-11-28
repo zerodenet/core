@@ -147,7 +147,9 @@ pub fn is_connect_rejection(error: &ChannelError) -> bool {
                     | Reason::Revoked
                     | Reason::Cancelled
                     | Reason::Timeout
-                    | Reason::Capacity,
+                    | Reason::Capacity
+                    | Reason::Io
+                    | Reason::Protocol,
             )
         )
 }

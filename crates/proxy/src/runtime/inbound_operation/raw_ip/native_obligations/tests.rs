@@ -183,3 +183,6 @@ mod dns_resolution;
 
 #[path = "tests/admission.rs"]
 mod admission;
+
+#[path = "tests/gateway_coverage.rs"]
+mod gateway_coverage;

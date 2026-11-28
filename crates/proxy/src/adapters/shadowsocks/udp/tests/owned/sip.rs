@@ -31,11 +31,19 @@ async fn actual_sip_process_quota_keeps_other_business_alive_and_cold_node_retri
     timeout(Duration::from_secs(30),async {
         let directory=tempfile::tempdir().unwrap();
         let fixture=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../protocols/shadowsocks/tests/support/sip003.py");
+        // Windows python3 can resolve to the Store alias instead of an interpreter.
+        let command=if cfg!(windows) {"py"} else {"python3"};
+        let plugin_args=|name: &str| {
+            let mut args=Vec::new();
+            if cfg!(windows) {args.push(serde_json::json!("-3"));}
+            args.extend([serde_json::json!(fixture),serde_json::json!("client"),serde_json::json!("tcp_only"),serde_json::json!(directory.path().join(name))]);
+            args
+        };
         let remote=TcpListener::bind("127.0.0.1:0").await.unwrap();let remote_port=remote.local_addr().unwrap().port();
         let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
             "runtime":{"process_max_jobs":1,"process_max_jobs_per_instance":1},
             "inbounds":[{"tag":"entry-a","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}},{"tag":"entry-b","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],
-            "outbounds":[{"tag":"a","protocol":{"type":"shadowsocks","server":"127.0.0.1","port":remote_port,"cipher":"aes-128-gcm","password":"process-wire","plugin":{"command":"python3","args":[fixture,"client","tcp_only",directory.path().join("a")],"options":"test=options;escaped=value","mode":"tcp_only"}}},{"tag":"b","protocol":{"type":"shadowsocks","server":"127.0.0.1","port":remote_port,"cipher":"aes-128-gcm","password":"process-wire","plugin":{"command":"python3","args":[fixture,"client","tcp_only",directory.path().join("b")],"options":"test=options;escaped=value","mode":"tcp_only"}}}],
+            "outbounds":[{"tag":"a","protocol":{"type":"shadowsocks","server":"127.0.0.1","port":remote_port,"cipher":"aes-128-gcm","password":"process-wire","plugin":{"command":command,"args":plugin_args("a"),"options":"test=options;escaped=value","mode":"tcp_only"}}},{"tag":"b","protocol":{"type":"shadowsocks","server":"127.0.0.1","port":remote_port,"cipher":"aes-128-gcm","password":"process-wire","plugin":{"command":command,"args":plugin_args("b"),"options":"test=options;escaped=value","mode":"tcp_only"}}}],
             "route":{"rules":[{"condition":{"type":"inbound","values":["entry-a"]},"action":{"type":"route","outbound":"a"}},{"condition":{"type":"inbound","values":["entry-b"]},"action":{"type":"route","outbound":"b"}}],"final":{"type":"direct"}}
         }).to_string()).unwrap();
         let proxy=Proxy::new(config).unwrap();let registry=proxy.system_tun_source_registry();let running=proxy.spawn();

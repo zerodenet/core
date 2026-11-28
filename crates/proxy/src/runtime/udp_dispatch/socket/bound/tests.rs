@@ -89,7 +89,32 @@ async fn actual_dispatch_uses_one_bound_provider_with_real_business_auth_and_pee
         .unwrap()
         .unwrap();
     assert_eq!(size, 0, "zero-length UDP datagram is real wire I/O");
-    assert!(UdpSocket::bind(original).await.is_err());
+    // Observe local_addr from this already-admitted flow's actual native send.
+    // The concrete wire source need not conflict with a wildcard bind on Windows.
+    let DispatchDirectSockets::Bound(bound) = &mut dispatch.direct_socket else {
+        panic!("the real dispatch must retain its bound provider");
+    };
+    let sent = bound
+        .bridge
+        .send_new_packet(
+            zero_core::component::SessionId(id),
+            &Address::Ipv4([127, 0, 0, 1]),
+            &[address],
+            b"observe original local_addr",
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent.sent, b"observe original local_addr".len());
+    let (size, observed) = timeout(Duration::from_secs(2), peer.recv_from(&mut bytes))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&bytes[..size], b"observe original local_addr");
+    assert_eq!(observed, original, "probe used the same native original");
+    let original_bind = sent.local.expect("same original socket local_addr");
+    assert_eq!(original_bind.port(), original.port());
+    assert_eq!(original_bind.is_ipv4(), original.is_ipv4());
+    assert!(UdpSocket::bind(original_bind).await.is_err());
     peer.send_to(b"reply", original).await.unwrap();
     let (size, source) = timeout(
         Duration::from_secs(2),
@@ -183,7 +208,7 @@ async fn actual_dispatch_uses_one_bound_provider_with_real_business_auth_and_pee
         .await;
     }
     assert!(
-        UdpSocket::bind(original).await.is_err(),
+        UdpSocket::bind(original_bind).await.is_err(),
         "cancelled receive never closes its original socket"
     );
     assert!(registration.closed().is_none());
@@ -201,7 +226,7 @@ async fn actual_dispatch_uses_one_bound_provider_with_real_business_auth_and_pee
         .expect("original provider and actual peer completed");
     assert!(closed.matches(&registration));
     assert_eq!(closed.joined().task(), registration.identity().task);
-    UdpSocket::bind(original).await.unwrap();
+    UdpSocket::bind(original_bind).await.unwrap();
 }
 
 #[tokio::test]

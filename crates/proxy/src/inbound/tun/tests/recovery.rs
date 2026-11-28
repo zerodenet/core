@@ -185,3 +185,143 @@ impl std::io::Write for LogWriter {
         Ok(())
     }
 }
+
+#[cfg(all(feature = "udp-runtime", feature = "dns"))]
+#[tokio::test]
+async fn stopped_tun_with_unconfirmed_cleanup_reports_consistent_status_and_reaps_once_complete() {
+    use zero_api::{QueryRequest, QueryResponse, QueryService, TunStatusQuery};
+    use zero_engine::EngineHandle;
+
+    let config = zero_config::RuntimeConfig::parse(
+        r#"{
+            "runtime": {
+                "dns": {
+                    "servers": { "global": { "type": "udp", "host": "1.1.1.1" } },
+                    "default_server": "global",
+                    "answer": { "type": "fake_ip" }
+                }
+            },
+            "route": { "rules": [], "final": { "type": "direct" } }
+        }"#,
+    )
+    .expect("parse fake-IP config");
+    let proxy = Proxy::new(config).expect("build proxy");
+    let handle = crate::ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone());
+
+    // 1. Simulate a stopped TUN (`tun_info = None`, `shutdown = true`) whose
+    //    resource cleanup failed confirmation (`resources_complete() == false`).
+    let (shutdown, _) = tokio::sync::watch::channel(true);
+    let (_done_tx, done) = tokio::sync::oneshot::channel();
+    let (route_tx, route_done) = tokio::sync::oneshot::channel();
+    route_tx
+        .send(Err(
+            "inbound carrier cleanup remains unconfirmed: 1 raw-IP child obligations".to_owned(),
+        ))
+        .unwrap();
+    let completion = super::super::completion::TunCompletion::new(done, Some(route_done));
+    completion.install_routes(tokio::spawn(async {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "inbound carrier cleanup remains unconfirmed: 1 raw-IP child obligations",
+        ))
+    }));
+    *proxy.tun_control.lock().unwrap() = Some(TunControl {
+        id: 81,
+        shutdown,
+        completion,
+        #[cfg(feature = "raw-ip-runtime")]
+        budget_recovery: None,
+        route_recovery: None,
+    });
+
+    let QueryResponse::TunStatus(status) = handle
+        .query(QueryRequest::TunStatus(TunStatusQuery))
+        .expect("query TUN status while cleanup is unconfirmed")
+    else {
+        panic!("expected TunStatus response");
+    };
+    assert!(!status.running);
+    assert_eq!(
+        status.last_error.as_deref(),
+        Some("previous TUN cleanup remains unconfirmed")
+    );
+
+    let unconfirmed_start = proxy
+        .start_tun(
+            super::super::TunInterfaceOptions {
+                name: Some("zero-unconfirmed-test"),
+                addr: "198.18.0.1/24",
+                mask: "255.255.255.0",
+                secondary_addr: None,
+            },
+            1500,
+            "tun-test",
+            super::super::TunRuntimeOptions {
+                auto_route: false,
+                include_cidrs: Vec::new(),
+                exclude_cidrs: Vec::new(),
+                dual_stack: false,
+                strict_route: true,
+                dns_hijack: true,
+            },
+        )
+        .await
+        .expect_err("unconfirmed prior TUN must block new start with a truthful error");
+    let text = unconfirmed_start.to_string();
+    assert!(
+        text.contains("previous TUN cleanup remains unconfirmed")
+            && !text.contains("TUN is already running"),
+        "expected unconfirmed-cleanup error instead of already-running, got: {text}"
+    );
+    assert_eq!(
+        proxy.tun_control.lock().unwrap().as_ref().map(|c| c.id),
+        Some(81),
+        "unconfirmed TunControl must remain retained"
+    );
+
+    // 2. Once the stopping TUN's resources confirm completion, `start_tun`
+    //    reaps the retired `TunControl` and proceeds past the running check.
+    let (shutdown_ok, _) = tokio::sync::watch::channel(true);
+    let (_done_ok_tx, done_ok) = tokio::sync::oneshot::channel();
+    let (route_ok_tx, route_ok_done) = tokio::sync::oneshot::channel();
+    route_ok_tx.send(Ok(())).unwrap();
+    let completion_ok = super::super::completion::TunCompletion::new(done_ok, Some(route_ok_done));
+    completion_ok.install_routes(tokio::spawn(async { Ok(()) }));
+    *proxy.tun_last_error.lock().unwrap() = Some("stale cleanup warning".to_owned());
+    *proxy.tun_control.lock().unwrap() = Some(TunControl {
+        id: 82,
+        shutdown: shutdown_ok,
+        completion: completion_ok,
+        #[cfg(feature = "raw-ip-runtime")]
+        budget_recovery: None,
+        route_recovery: None,
+    });
+
+    let collision = proxy
+        .start_tun(
+            super::super::TunInterfaceOptions {
+                name: Some("zero-reaped-test"),
+                addr: "198.18.0.1/24",
+                mask: "255.255.255.0",
+                secondary_addr: None,
+            },
+            1500,
+            "tun-test",
+            super::super::TunRuntimeOptions {
+                auto_route: false,
+                include_cidrs: Vec::new(),
+                exclude_cidrs: Vec::new(),
+                dual_stack: false,
+                strict_route: true,
+                dns_hijack: true,
+            },
+        )
+        .await
+        .expect_err("after reaping completed control, Fake-IP collision check runs");
+    assert!(
+        collision.to_string().contains("overlaps TUN-owned address"),
+        "expected Fake-IP validation error after reaping stopped control, got: {collision}"
+    );
+    assert!(proxy.tun_control.lock().unwrap().is_none());
+    assert!(proxy.tun_last_error.lock().unwrap().is_none());
+}

@@ -123,11 +123,16 @@ impl NativeRegistration {
         }) {
             return Ok(false);
         }
-        if logical
-            .iter()
-            .any(|original| !original.belongs_to(&witness) || !original.closed())
-        {
-            return Ok(false);
+        for original in &logical {
+            if !original.belongs_to(&witness) {
+                return Ok(false);
+            }
+            if !original.closed() {
+                let report = original.retire_and_wait(deadline).await?;
+                if !report.is_complete() || !original.closed() {
+                    return Ok(false);
+                }
+            }
         }
         match kind {
             ChildKind::Tcp => {
@@ -141,16 +146,20 @@ impl NativeRegistration {
                     if !report.is_complete() || !closed.matches(&adoption) {
                         return Ok(false);
                     }
-                    if closed.had_native_acquisition()
-                        && adoption.users_closed().is_none_or(|users| {
+                    if closed.had_native_acquisition() {
+                        let unpublished = adoption.unpublished_preparation_closed_for(&witness);
+                        if adoption.users_closed().is_none_or(|users| {
                             !users.matches(&adoption)
-                                || !users.matches_caller(&witness)
-                                || users.caller_exit().is_none_or(|exit| {
-                                    exit.id() != joined.task() || exit.class() != joined.class()
-                                })
-                        })
-                    {
-                        return Ok(false);
+                                || !users.had_native_acquisition()
+                                || !(unpublished.as_ref().is_some_and(|proof| {
+                                    proof.matches_receipts(&closed, &users, &witness)
+                                }) || users.matches_caller(&witness)
+                                    && users.caller_exit().is_some_and(|exit| {
+                                        exit.id() == joined.task() && exit.class() == joined.class()
+                                    }))
+                        }) {
+                            return Ok(false);
+                        }
                     }
                 }
                 Ok(true)

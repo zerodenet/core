@@ -35,6 +35,16 @@ async fn send_bridge(
     peer: &tokio::net::UdpSocket,
     payload: &[u8],
 ) -> SocketAddr {
+    send_bridge_with_original(bridge, session, peer, payload)
+        .await
+        .0
+}
+async fn send_bridge_with_original(
+    bridge: &mut DirectDispatchEndpoint,
+    session: SessionId,
+    peer: &tokio::net::UdpSocket,
+    payload: &[u8],
+) -> (SocketAddr, SocketAddr) {
     let target = peer.local_addr().unwrap();
     // A prepared domain candidate remains a domain at the logical boundary;
     // this scoped endpoint never performs DNS or replaces the business ID.
@@ -54,7 +64,10 @@ async fn send_bridge(
         .unwrap()
         .unwrap();
     assert_eq!(&bytes[..size], payload);
-    original
+    let original_bind = packet.local.expect("same original socket local_addr");
+    assert_eq!(original_bind.port(), original.port());
+    assert_eq!(original_bind.is_ipv4(), original.is_ipv4());
+    (original, original_bind)
 }
 fn as_binding(
     resources: &Arc<dyn ResourceAccess>,
@@ -175,7 +188,8 @@ async fn actual_bound_peer_shares_original_ports_preserves_tombstones_and_keeps_
             CancellationToken::new(),
         )
         .unwrap();
-    let original = send_bridge(&mut bridge, SessionId(one.id), &first, b"first").await;
+    let (original, original_bind) =
+        send_bridge_with_original(&mut bridge, SessionId(one.id), &first, b"first").await;
     assert_eq!(
         send_bridge(&mut bridge, SessionId(two.id), &second, b"second").await,
         original
@@ -192,7 +206,7 @@ async fn actual_bound_peer_shares_original_ports_preserves_tombstones_and_keeps_
         .unwrap()
         .is_complete());
     assert!(!old.is_current());
-    assert!(tokio::net::UdpSocket::bind(original).await.is_err());
+    assert!(tokio::net::UdpSocket::bind(original_bind).await.is_err());
     let (three, _three_handle) = business(&live, first.local_addr().unwrap()).await;
     bridge
         .admit_bound(
@@ -202,7 +216,8 @@ async fn actual_bound_peer_shares_original_ports_preserves_tombstones_and_keeps_
             CancellationToken::new(),
         )
         .unwrap();
-    let collision = send_bridge(&mut bridge, SessionId(three.id), &first, b"new first").await;
+    let (collision, collision_bind) =
+        send_bridge_with_original(&mut bridge, SessionId(three.id), &first, b"new first").await;
     assert_ne!(
         collision, original,
         "retired tuple cannot inherit old replies"
@@ -243,13 +258,13 @@ async fn actual_bound_peer_shares_original_ports_preserves_tombstones_and_keeps_
         .await
         .unwrap()
         .is_complete());
-    tokio::net::UdpSocket::bind(collision).await.unwrap();
+    tokio::net::UdpSocket::bind(collision_bind).await.unwrap();
     assert!(bridge
         .finish_session(SessionId(two.id), deadline())
         .await
         .unwrap()
         .is_complete());
-    tokio::net::UdpSocket::bind(original).await.unwrap();
+    tokio::net::UdpSocket::bind(original_bind).await.unwrap();
     endpoint.refresh_sources(deadline()).await.unwrap();
     assert_eq!(
         live.context

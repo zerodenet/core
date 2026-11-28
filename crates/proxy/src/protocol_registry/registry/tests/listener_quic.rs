@@ -60,8 +60,17 @@ async fn standard_quic(inbound: zero_config::InboundConfig, alpn: &[u8]) {
             .await;
     assert!(listener.address.is_ipv6());
     let address = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), listener.address.port());
-    let mut client =
-        quinn::Endpoint::client(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0)).unwrap();
+    // Endpoint::client forces dual-stack on IPv6 sockets, which Windows cannot
+    // bind to ::1. Keep this IPv6-only fixture on its actual bound socket.
+    let socket = std::net::UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let mut client = quinn::Endpoint::new(
+        quinn::EndpointConfig::default(),
+        None,
+        socket,
+        std::sync::Arc::new(quinn::TokioRuntime),
+    )
+    .unwrap();
     client.set_default_client_config(
         zero_transport::quic::client_config(true, None, &[alpn.to_vec()], None).unwrap(),
     );

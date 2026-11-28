@@ -122,7 +122,7 @@ impl RuntimeOptionsConfig {
         self.component_total_max_tasks.unwrap_or(4096)
     }
     pub fn effective_native_stream_max_originals(&self) -> usize {
-        self.native_stream_max_originals.unwrap_or(4)
+        self.native_stream_max_originals.unwrap_or(256)
     }
     pub fn effective_packet_return_max_frames(&self) -> usize {
         self.packet_return_max_frames.unwrap_or(256)

@@ -77,7 +77,11 @@ fn embedded_write_failure_never_installs_and_retries_after_real_parent_repair() 
             Ok::<(), io::Error>(())
         })
         .unwrap_err();
-    assert_eq!(error.kind(), io::ErrorKind::NotADirectory);
+    assert!(
+        error.kind() == io::ErrorKind::NotADirectory
+            || (cfg!(windows) && error.kind() == io::ErrorKind::NotFound),
+        "non-directory parent: {error}"
+    );
     assert!(!installed.load(Ordering::Acquire));
     assert_eq!(source.observation().successful_writes, 0);
     assert_eq!(

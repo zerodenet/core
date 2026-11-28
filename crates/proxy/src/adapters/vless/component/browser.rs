@@ -125,7 +125,7 @@ impl super::super::VlessAdapter {
         let limit = resources
             .candidate()
             .map(|config| config.runtime.effective_native_stream_max_originals())
-            .unwrap_or(4);
+            .unwrap_or(256);
         let limit = originals
             .or_else(|| NonZeroUsize::new(limit))
             .ok_or_else(|| {

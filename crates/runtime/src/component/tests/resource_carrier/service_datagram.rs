@@ -7,8 +7,14 @@ async fn service_datagram_registration_keeps_exact_ordinal_scope_owner_and_no_ca
 ) {
     tokio::time::timeout(Duration::from_secs(5), async {
         let mut fixture = Fixture::new().await;
+        // Allocate and retain the actual UDP peer before declaring its endpoint.
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Destination::new(
+            Address::Ipv4([127, 0, 0, 1]),
+            peer.local_addr().unwrap().port(),
+        );
         let declaration = ResourceDeclaration::ControlledServiceDatagram {
-            endpoint: fixture.destination(),
+            endpoint: endpoint.clone(),
             dial: Default::default(),
             max_sockets: one(),
         };
@@ -53,10 +59,6 @@ async fn service_datagram_registration_keeps_exact_ordinal_scope_owner_and_no_ca
         drop(access);
         // Unique driver-view custody is allowed. Cached-pool retention is a
         // separate authority: test it after installing the real borrowed driver.
-        let peer = tokio::net::UdpSocket::bind(fixture.listener.local_addr().unwrap())
-            .await
-            .unwrap();
-        let endpoint = fixture.destination();
         let egress = Arc::new(zero_platform_tokio::EgressInterfaceControl::default());
         let binding = UpstreamBinding {
             prefix: Vec::new(),

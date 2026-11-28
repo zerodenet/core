@@ -42,7 +42,13 @@ impl Server {
             loop {
                 let (size, peer) = tokio::select! { biased;
                     _ = cancel.cancelled() => break,
-                    result = socket.recv_from(&mut buffer) => result.unwrap(),
+                    result = socket.recv_from(&mut buffer) => match result {
+                        Ok(packet) => packet,
+                        // Windows can report asynchronous ICMP for a retired peer;
+                        // this does not retire the shared fixture listener.
+                        Err(error) if cfg!(windows) && error.kind() == std::io::ErrorKind::ConnectionReset => continue,
+                        Err(error) => panic!("actual packet listener receive failed: {error}"),
+                    },
                 };
                 let sender = peers.entry(peer).or_insert_with(|| {
                     count.fetch_add(1, Ordering::SeqCst);

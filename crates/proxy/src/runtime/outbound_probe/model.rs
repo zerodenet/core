@@ -30,6 +30,27 @@ impl OutboundProbeError {
     /// Failures before the probe can reach the selected outbound do not
     /// provide evidence about that outbound's health.
     pub(crate) fn is_environmental_failure(&self) -> bool {
+        use crate::transport::{failure_origin, TransportFailureOrigin};
+
+        // Native admission errors (in particular local Capacity exhaustion)
+        // retain their typed origin through the probe/engine/io wrappers. They
+        // must be as inconclusive as local DNS/TUN failures, not overwrite a
+        // previously measured member as unhealthy merely because a slot or
+        // its close receipt is still occupied. Keep the wire error unchanged.
+        if let Some(origin) = self
+            .source
+            .as_ref()
+            .and_then(|source| failure_origin(source.as_ref()))
+        {
+            // An explicit origin also rules out misleading legacy DNS/TUN
+            // words in a remote or client diagnostic. Only unattributed
+            // failures fall back to the historical text normalization below.
+            return matches!(
+                origin,
+                TransportFailureOrigin::LocalNetwork | TransportFailureOrigin::NameResolution
+            );
+        }
+
         let message = self.message.to_ascii_lowercase();
         message.contains("tun physical egress is unavailable")
             || message.contains("tun_ipv4_egress_unavailable")

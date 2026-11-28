@@ -89,6 +89,81 @@ impl UdpRuntimeServices {
         session: &zero_core::Session,
         policy: &zero_traits::DialPolicy,
     ) -> Result<crate::transport::DirectTargetResolution, zero_engine::EngineError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(caller) = self
+            .tcp
+            .execution()
+            .invocation
+            .as_ref()
+            .and_then(|invocation| invocation.caller_native.clone())
+        {
+            struct NativeUdpDnsOpener(
+                crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration,
+            );
+            impl crate::transport::CandidateOpener for NativeUdpDnsOpener {
+                type Socket = zero_platform_tokio::TokioSocket;
+                fn resolve<'a>(
+                    &'a self,
+                    resolver: &'a zero_dns::DnsSystem,
+                    work: zero_platform_tokio::contract::BoxFuture<
+                        'a,
+                        Result<crate::transport::DirectTargetResolution, zero_core::Error>,
+                    >,
+                ) -> zero_platform_tokio::contract::BoxFuture<
+                    'a,
+                    Result<crate::transport::DirectTargetResolution, zero_core::Error>,
+                > {
+                    Box::pin(async move {
+                        let call = resolver.resolution_call();
+                        let work = call.scope(work);
+                        let permit = self
+                            .0
+                            .bind_dns_resolution(
+                                call,
+                                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                            )
+                            .await
+                            .map_err(|_| {
+                                zero_core::Error::Io("original Direct UDP DNS lookup denied")
+                            })?;
+                        let result = work.await.map_err(|_| {
+                            zero_core::Error::Io("original Direct UDP DNS lookup failed")
+                        })?;
+                        drop(permit);
+                        result
+                    })
+                }
+                fn open<'a>(
+                    &'a self,
+                    _: crate::transport::DirectCandidate,
+                    _: &'a zero_platform_tokio::EgressInterfaceControl,
+                    _: &'a zero_platform_tokio::EgressSelection,
+                    _: &'a zero_traits::DialPolicy,
+                ) -> zero_platform_tokio::contract::BoxFuture<
+                    'a,
+                    Result<
+                        crate::transport::CandidateOpened<Self::Socket>,
+                        crate::transport::CandidateOpenFailure,
+                    >,
+                > {
+                    unreachable!("Direct UDP target resolution never opens TCP stream candidates")
+                }
+            }
+            let opener = NativeUdpDnsOpener(caller);
+            return self
+                .tcp
+                .upstream
+                .connector
+                .resolve_target_addrs_using(
+                    session,
+                    self.tcp.upstream.resolver.as_ref(),
+                    &self.tcp.upstream.egress_interface,
+                    policy,
+                    Some(&opener),
+                )
+                .await
+                .map_err(Into::into);
+        }
         self.tcp
             .upstream
             .connector

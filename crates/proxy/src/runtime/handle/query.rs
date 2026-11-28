@@ -53,46 +53,57 @@ impl zero_api::QueryService for ProxyHandle {
                     .to_owned(),
             );
             let ipv6_to_ipv4_fallbacks = self.proxy.egress_interface.ipv6_to_ipv4_fallbacks();
-            let snap = match info.as_ref() {
-                Some(tun) => zero_api::TunStatusSnapshot {
-                    running: true,
-                    name: Some(tun.name.clone()),
-                    addr: Some(tun.addr.clone()),
-                    addresses: tun.addresses.clone(),
-                    mtu: Some(tun.mtu),
-                    tag: Some(tun.tag.clone()),
-                    healthy: tun.healthy,
-                    auto_route: tun.auto_route,
-                    include_cidrs: tun.include_cidrs.iter().map(ToString::to_string).collect(),
-                    exclude_cidrs: tun.exclude_cidrs.iter().map(ToString::to_string).collect(),
-                    dual_stack: tun.dual_stack,
-                    strict_route: tun.strict_route,
-                    dns_hijack: tun.dns_hijack,
-                    fake_ip_enabled: self.proxy.resolver.fake_ip_enabled(),
-                    dns_hijacked_queries: tun
-                        .dns_hijacked_queries
-                        .load(std::sync::atomic::Ordering::Relaxed),
-                    egress_interface: tun.egress_interface.clone(),
-                    egress_interface_v4: tun.egress_interface_v4.clone(),
-                    egress_interface_v6: tun.egress_interface_v6.clone(),
-                    ipv4_egress,
-                    ipv6_egress,
-                    network_generation,
-                    address_family_policy,
-                    ipv6_to_ipv4_fallbacks,
-                    last_error: tun.last_error.clone(),
-                    managed_by_config: tun.managed_config.is_some(),
-                },
-                None => zero_api::TunStatusSnapshot {
-                    last_error: self.proxy.tun_last_error.lock().unwrap().clone(),
-                    ipv4_egress,
-                    ipv6_egress,
-                    network_generation,
-                    address_family_policy,
-                    ipv6_to_ipv4_fallbacks,
-                    ..Default::default()
-                },
-            };
+            let snap =
+                match info.as_ref() {
+                    Some(tun) => zero_api::TunStatusSnapshot {
+                        running: true,
+                        name: Some(tun.name.clone()),
+                        addr: Some(tun.addr.clone()),
+                        addresses: tun.addresses.clone(),
+                        mtu: Some(tun.mtu),
+                        tag: Some(tun.tag.clone()),
+                        healthy: tun.healthy,
+                        auto_route: tun.auto_route,
+                        include_cidrs: tun.include_cidrs.iter().map(ToString::to_string).collect(),
+                        exclude_cidrs: tun.exclude_cidrs.iter().map(ToString::to_string).collect(),
+                        dual_stack: tun.dual_stack,
+                        strict_route: tun.strict_route,
+                        dns_hijack: tun.dns_hijack,
+                        fake_ip_enabled: self.proxy.resolver.fake_ip_enabled(),
+                        dns_hijacked_queries: tun
+                            .dns_hijacked_queries
+                            .load(std::sync::atomic::Ordering::Relaxed),
+                        egress_interface: tun.egress_interface.clone(),
+                        egress_interface_v4: tun.egress_interface_v4.clone(),
+                        egress_interface_v6: tun.egress_interface_v6.clone(),
+                        ipv4_egress,
+                        ipv6_egress,
+                        network_generation,
+                        address_family_policy,
+                        ipv6_to_ipv4_fallbacks,
+                        last_error: tun.last_error.clone(),
+                        managed_by_config: tun.managed_config.is_some(),
+                    },
+                    None => zero_api::TunStatusSnapshot {
+                        last_error: self.proxy.tun_last_error.lock().unwrap().clone().or_else(
+                            || {
+                                self.proxy
+                                    .tun_control
+                                    .lock()
+                                    .unwrap()
+                                    .as_ref()
+                                    .filter(|control| *control.shutdown.borrow())
+                                    .map(|_| "previous TUN cleanup remains unconfirmed".to_owned())
+                            },
+                        ),
+                        ipv4_egress,
+                        ipv6_egress,
+                        network_generation,
+                        address_family_policy,
+                        ipv6_to_ipv4_fallbacks,
+                        ..Default::default()
+                    },
+                };
             return Ok(zero_api::QueryResponse::TunStatus(snap));
         }
         self.inner.query(request)

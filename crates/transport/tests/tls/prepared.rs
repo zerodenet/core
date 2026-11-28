@@ -74,9 +74,10 @@ fn pem_diagnostics_keep_base_directory_and_original_parse_source() {
             Err(error) => error,
         };
     assert_eq!(empty.kind(), io::ErrorKind::InvalidInput);
+    let authority_path = Path::new("/configured/base").join("not-opened/authority.pem");
     assert!(empty
         .to_string()
-        .contains("/configured/base/not-opened/authority.pem"));
+        .contains(authority_path.to_string_lossy().as_ref()));
     let malformed = match PreparedClient::from_ca_pem(
         &profile,
         None,

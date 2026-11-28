@@ -159,6 +159,13 @@ impl Fixture {
     }
 }
 async fn send(tx: &mut DirectEndpointTx, peer: &tokio::net::UdpSocket, bytes: &[u8]) -> SocketAddr {
+    send_with_original(tx, peer, bytes).await.0
+}
+async fn send_with_original(
+    tx: &mut DirectEndpointTx,
+    peer: &tokio::net::UdpSocket,
+    bytes: &[u8],
+) -> (SocketAddr, SocketAddr) {
     let target = peer.local_addr().unwrap();
     let sent = tx
         .send_new_packet(&Address::Ipv4([127, 0, 0, 1]), &[target], bytes)
@@ -171,7 +178,12 @@ async fn send(tx: &mut DirectEndpointTx, peer: &tokio::net::UdpSocket, bytes: &[
         .unwrap()
         .unwrap();
     assert_eq!(&packet[..size], bytes);
-    local
+    // The wire source may be concrete while the original is wildcard-bound.
+    // Rebind only its actual local_addr, never a guessed address from the wire.
+    let original = sent.local.expect("same original socket local_addr");
+    assert_eq!(original.port(), local.port());
+    assert_eq!(original.is_ipv4(), local.is_ipv4());
+    (local, original)
 }
 
 #[tokio::test]
@@ -197,7 +209,7 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
         second.local_addr().unwrap(),
         CancellationToken::new(),
     );
-    let shared = send(&mut tx1, &first, b"first").await;
+    let (shared, shared_bind) = send_with_original(&mut tx1, &first, b"first").await;
     assert_eq!(send(&mut tx2, &second, b"second").await, shared);
     first.send_to(b"already read", shared).await.unwrap();
     let (bytes, old) = rx1.recv().await.unwrap().unwrap();
@@ -215,7 +227,7 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
         "logical reply retirement is not shared-fd closure"
     );
     assert!(!old.is_current());
-    assert!(tokio::net::UdpSocket::bind(shared).await.is_err());
+    assert!(tokio::net::UdpSocket::bind(shared_bind).await.is_err());
     // A same-peer new business flow must not inherit the old tuple on the still
     // live socket. The unrelated peer keeps its original source endpoint.
     let (mut tx3, mut rx3, mut ctl3) = fixture.open(
@@ -223,7 +235,7 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
         first.local_addr().unwrap(),
         CancellationToken::new(),
     );
-    let collision = send(&mut tx3, &first, b"new first").await;
+    let (collision, collision_bind) = send_with_original(&mut tx3, &first, b"new first").await;
     assert_ne!(collision, shared);
     assert_eq!(send(&mut tx2, &second, b"still second").await, shared);
     second.send_to(b"current", shared).await.unwrap();
@@ -232,7 +244,7 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
     assert!(current.is_current());
     assert!(ctl2.wait_closed(deadline()).await.unwrap().is_complete());
     assert!(!current.is_current());
-    tokio::net::UdpSocket::bind(shared).await.unwrap();
+    tokio::net::UdpSocket::bind(shared_bind).await.unwrap();
     // Zero length remains a real packet in both directions.
     assert_eq!(send(&mut tx3, &first, b"").await, collision);
     first.send_to(b"", collision).await.unwrap();
@@ -253,7 +265,7 @@ async fn actual_shared_driver_keeps_source_port_peer_tombstones_and_read_guards(
         report.closed_io,
         vec!["explicitly closed 2 original Direct UDP sockets"]
     );
-    tokio::net::UdpSocket::bind(collision).await.unwrap();
+    tokio::net::UdpSocket::bind(collision_bind).await.unwrap();
     assert!(ctl3.wait_closed(deadline()).await.unwrap().is_complete());
     assert!(endpoint
         .open(

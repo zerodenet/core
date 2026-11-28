@@ -115,7 +115,7 @@ pub(crate) fn prepare(
         resources
             .candidate()
             .map(|c| c.runtime.effective_native_stream_max_originals())
-            .unwrap_or(4),
+            .unwrap_or(256),
     )
     .filter(|v| v.get() <= 4096)
     .ok_or_else(|| ConfigError::InvalidRuntime("invalid Browser original limit".into()))?;

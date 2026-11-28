@@ -205,3 +205,57 @@ impl CarrierAdoption {
         self.slot.state().auxiliary_exit.clone()
     }
 }
+
+pub(in crate::controlled_carrier) fn try_accept_auxiliary(
+    slot: &std::sync::Arc<super::slot::Slot>,
+) -> Result<(), ChannelError> {
+    let (witness, accepted) = {
+        let state = slot.state();
+        (state.auxiliary.clone(), state.auxiliary_accepted)
+    };
+    if accepted {
+        return Ok(());
+    }
+    let Some(witness) = witness else {
+        return Ok(());
+    };
+    let Some(joined) = witness.try_joined() else {
+        return Ok(());
+    };
+    {
+        let mut state = slot.state();
+        state.auxiliary_exit.get_or_insert_with(|| joined.clone());
+    }
+    let adoption = CarrierAdoption { slot: slot.clone() };
+    if let Some(source) = adoption
+        .preparation()
+        .and_then(|preparation| preparation.retained_connect_rejection_result(&joined))
+    {
+        adoption
+            .preparation()
+            .ok_or_else(|| {
+                error(
+                    slot.instance,
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::Unknown,
+                )
+            })?
+            .retain_connect_rejection_before_ack(&source)?;
+    }
+    if joined.result().is_err() {
+        witness
+            .acknowledge_hosted_failure(&joined)
+            .map_err(|source| {
+                error(
+                    slot.instance,
+                    Stage::Close,
+                    Reason::Internal,
+                    DeliveryState::Unknown,
+                )
+                .with_source(source)
+            })?;
+    }
+    slot.state().auxiliary_accepted = true;
+    Ok(())
+}

@@ -8,6 +8,8 @@ use zero_engine::EngineError;
 const HEALTH_TAG: &str = "health-isolation-test";
 mod diagnostics;
 mod health_scope;
+#[cfg(feature = "shadowsocks")]
+mod local_capacity;
 mod local_failures;
 fn test_services() -> TcpExecutionServices {
     crate::Proxy::new(

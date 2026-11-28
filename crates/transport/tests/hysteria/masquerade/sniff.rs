@@ -9,6 +9,7 @@ async fn file_extensions_take_precedence_over_sniffing_in_both_cases() {
         ("JPG", "image/jpeg"),
         ("jpg", "image/jpeg"),
         ("CSV", "text/csv; charset=utf-8"),
+        ("csv", "text/csv; charset=utf-8"),
         ("avif", "image/avif"),
         ("ZIP", "application/zip"),
         ("gz", "application/gzip"),
@@ -16,6 +17,11 @@ async fn file_extensions_take_precedence_over_sniffing_in_both_cases() {
         ("svg", "image/svg+xml"),
         ("not-a-registered-extension", "image/gif"),
     ] {
+        // Windows intentionally honors HKCR overrides (for example, Office
+        // may register CSV as application/vnd.ms-excel). Query that host fact
+        // independently of the HTTP serving/sniffing path under test.
+        #[cfg(windows)]
+        let mime = windows_extension_type(extension).unwrap_or_else(|| mime.to_owned());
         let file = format!("file.{extension}");
         std::fs::write(root.join(&file), b"GIF89a").unwrap();
         let mut exchange = Exchange::default();
@@ -37,6 +43,21 @@ async fn file_extensions_take_precedence_over_sniffing_in_both_cases() {
         assert_eq!(exchange.body, b"GIF89a");
     }
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(windows)]
+fn windows_extension_type(extension: &str) -> Option<String> {
+    let root = winreg::RegKey::predef(winreg::enums::HKEY_CLASSES_ROOT);
+    let key = root.open_subkey(format!(".{extension}")).ok()?;
+    let value = key.get_value::<String, _>("Content Type").ok()?;
+    let parsed = value.parse::<::mime::Mime>().ok()?;
+    Some(
+        if parsed.type_() == ::mime::TEXT && parsed.get_param(::mime::CHARSET).is_none() {
+            format!("{parsed}; charset=utf-8")
+        } else {
+            value
+        },
+    )
 }
 
 #[tokio::test]

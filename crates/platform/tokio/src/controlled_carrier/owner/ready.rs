@@ -10,6 +10,7 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
     // Local failure acceptance invokes Host wakers: receive the exact job
     // outside this original's close gate and all Slot/Owner state locks.
     crate::controlled_carrier::preparation::try_accept_job_exit(slot)?;
+    crate::controlled_carrier::auxiliary::try_accept_auxiliary(slot)?;
     let protocol = { slot.state().protocol.clone() };
     if protocol
         .as_ref()

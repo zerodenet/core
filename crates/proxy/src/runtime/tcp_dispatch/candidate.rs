@@ -23,41 +23,8 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
         .and_then(|invocation| invocation.caller_native.as_ref())
     {
         let covered = match &prepared.execution {
-            PreparedTcpCandidateExecution::Native(selected) => {
-                // TUN sniffing retains a domain for routing/accounting while
-                // Direct still opens the original literal IP. Qualify that
-                // actual gateway, not the descriptive sniffed target. A real
-                // domain Direct lookup remains a separate DNS obligation.
-                // The selected Direct provider also installs each actual
-                // domain lookup/refresh in this Source's finite DNS ledger.
-                selected.slot().is_ok_and(|slot| {
-                    use zero_platform_tokio::contract::component::ResourceDeclaration;
-                    slot.recipe
-                        .spec()
-                        .resources
-                        .iter()
-                        .any(|declaration| match declaration {
-                            ResourceDeclaration::ControlledDirectStream { .. }
-                            | ResourceDeclaration::ControlledDirectCarrier { .. } => true,
-                            // This actual standard Node grant binds the same raw
-                            // Business caller and installs its original adoption.
-                            // Domain Node preparation still needs its DNS owner.
-                            ResourceDeclaration::ControlledNodeCarrier { endpoint, .. }
-                            | ResourceDeclaration::ControlledNodeStream { endpoint, .. }
-                            | ResourceDeclaration::ControlledAssociationPool { endpoint, .. } => {
-                                matches!(
-                                    endpoint.address,
-                                    zero_core::Address::Ipv4(_) | zero_core::Address::Ipv6(_)
-                                )
-                            }
-                            _ => false,
-                        })
-                })
-            }
-            PreparedTcpCandidateExecution::Block { .. } => !matches!(
-                session.effective_direct_target(),
-                zero_core::Address::Domain(_)
-            ),
+            PreparedTcpCandidateExecution::Native(selected) => selected.slot().is_ok(),
+            PreparedTcpCandidateExecution::Block { .. } => true,
         };
         caller
             .declare_gateway(covered)

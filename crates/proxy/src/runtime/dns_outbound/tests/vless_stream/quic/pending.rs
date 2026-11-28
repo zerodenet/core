@@ -51,7 +51,8 @@ async fn cancelling_before_quic_loan_delivery_waits_for_the_same_native_and_borr
                     assert!(row.original().closed().is_none()); Some((owner, row.original().clone()))
                 } else { None };
                 query.abort(); assert!(query.await.unwrap_err().is_cancelled());
-                let joined = tokio::time::timeout_at(deadline(), actual.task.wait()).await.unwrap(); joined.result().unwrap();
+                // Observe the original join beyond QUIC's normal Initial 3*PTO drain (~2997ms).
+                let joined = tokio::time::timeout_at(tokio::time::Instant::now() + Duration::from_secs(5), actual.task.wait()).await.unwrap(); joined.result().unwrap();
                 if let Some(metadata) = metadata {
                     let closed = metadata.closed().expect("query finalizer waits for same original native close");
                     assert!(closed.matches(&metadata) && closed.had_native_acquisition());

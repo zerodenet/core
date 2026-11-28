@@ -9,6 +9,9 @@ use zero_api::{event_type, EventFilter, EventSource};
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy;
 
+#[path = "urltest_health_scope/local_capacity.rs"]
+mod local_capacity;
+
 #[tokio::test]
 async fn successful_policy_probe_restores_a_cooling_candidate() {
     policy_probe_during_cooldown(true).await;

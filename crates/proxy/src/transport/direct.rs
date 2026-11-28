@@ -258,7 +258,7 @@ impl DirectConnector {
             .await
     }
 
-    async fn resolve_target_addrs_using<S: Send>(
+    pub(crate) async fn resolve_target_addrs_using<S: Send>(
         &self,
         session: &Session,
         resolver: &DnsSystem,

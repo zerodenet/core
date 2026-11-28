@@ -43,11 +43,20 @@ impl Outbound {
         source: &ChannelError,
     ) -> Result<bool, ChannelError> {
         #[cfg(test)]
-        eprintln!("actual original retry input endpoint={:?} prefixEmpty={} nativeConnected={} taggedConnect={:?} cancelled={} expired={} originalClosed={:?}",
-            self.endpoint, context.upstream.binding().prefix.is_empty(), transfer.adoption.endpoints().is_some(),
-            zero_platform_tokio::controlled_carrier::original_connect_error(source).map(|original| original.stage()),
-            context.cancel.is_cancelled(), context.deadline.is_some_and(|end| Instant::now() >= end),
-            transfer.adoption.closed().map(|native| (native.had_native_acquisition(),native.borrowed_origin().is_some())));
+        eprintln!(
+            "actual original retry input endpoint={:?} prefixEmpty={} nativeConnected={} taggedConnect={:?} cancelled={} expired={} originalClosed={:?}",
+            self.endpoint,
+            context.upstream.binding().prefix.is_empty(),
+            transfer.adoption.endpoints().is_some(),
+            zero_platform_tokio::controlled_carrier::original_connect_error(source)
+                .map(|original| original.stage()),
+            context.cancel.is_cancelled(),
+            context.deadline.is_some_and(|end| Instant::now() >= end),
+            transfer.adoption.closed().map(|native| (
+                native.had_native_acquisition(),
+                native.borrowed_origin().is_some()
+            ))
+        );
         if !matches!(self.endpoint.address, zero_core::Address::Domain(_))
             || !context.upstream.binding().prefix.is_empty()
             || !zero_platform_tokio::controlled_carrier::original_connect_error(source)
@@ -63,7 +72,10 @@ impl Outbound {
         // have really settled. No new protocol/TLS handshake was submitted.
         let report = match context.deadline {
             Some(end) => transfer.close(end).await?,
-            None => transfer.try_close()?,
+            None => {
+                let brief = Instant::now() + std::time::Duration::from_secs(5);
+                transfer.close_with_grace(&context.cancel, brief).await?
+            }
         };
         #[cfg(test)]
         eprintln!(

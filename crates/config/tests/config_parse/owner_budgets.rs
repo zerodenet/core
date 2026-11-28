@@ -476,7 +476,7 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         (
             "native_stream_max_originals",
             RuntimeOptionsConfig::effective_native_stream_max_originals,
-            4,
+            256,
             4096,
         ),
         (

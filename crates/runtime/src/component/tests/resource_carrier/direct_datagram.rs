@@ -23,9 +23,10 @@ async fn direct_dual_owner_rejects_bare_and_stream_authority_before_native_udp_a
     fixture.owner.start(deadline()).await.unwrap();
     drop(access);
     let binding = fixture.transport.binding().clone();
-    let endpoint = fixture.destination();
-    let address = fixture.listener.local_addr().unwrap();
-    let socket = tokio::net::UdpSocket::bind(address).await.unwrap();
+    // UDP has a separate excluded-port table; a TCP listener reserves no UDP address.
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let address = socket.local_addr().unwrap();
+    let endpoint = Destination::new(Address::Ipv4([127, 0, 0, 1]), address.port());
     let egress = Arc::new(zero_platform_tokio::EgressInterfaceControl::default());
     let opener =
         NativeCarrierOpener::new(instance(), binding.clone(), address, egress.clone(), None)

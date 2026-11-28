@@ -77,6 +77,10 @@ impl Transfer {
         drop(guard);
         Ok(report)
     }
+    pub(super) fn has_incomplete_cleanup_segments(&self) -> bool {
+        let cleanup = self.cleanup.lock().unwrap();
+        !cleanup.completed(0) || !cleanup.completed(1)
+    }
     pub(super) fn finished(&self) -> bool {
         self.release_pending();
         self.pending.lock().unwrap().is_empty()

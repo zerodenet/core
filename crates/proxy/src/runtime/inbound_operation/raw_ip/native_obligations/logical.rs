@@ -89,6 +89,7 @@ impl NativeRegistration {
             .gateways
             .checked_add(1)
             .ok_or_else(|| rejected(Reason::Capacity))?;
+        record.no_gateway_opened = false;
         record.logical_datagrams.push(original);
         Ok(())
     }

@@ -105,7 +105,7 @@ pub(crate) fn compiled_registries_with_network(
                                 .map(|config| {
                                     config.runtime.effective_native_stream_max_originals()
                                 })
-                                .unwrap_or(4);
+                                .unwrap_or(256);
                             options = options
                                 .with_carrier_limit(std::num::NonZeroUsize::new(limit).unwrap());
                             // A literal Stream does not consume Node DNS. The

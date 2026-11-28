@@ -1,5 +1,11 @@
 # 控制面兼容性与破坏性变更
 
+### 2026-11-28: taskless Stream admission and probe health
+
+`runtime.native_stream_max_originals` 的省略默认值由 4 调整为 256；显式配置不变，实际原件仍受同一 Host 的 `carrier_max_total_originals` 总账约束，未完成原件、转移视图及调用方 ACK 不会提前释放额度。无 deadline 的取消／关闭回收共享一轮最多五秒的清理宽限，取消仍可中断；宽限到期不是 native close 成功，也不会作为持久清理故障保存。域名候选只在真实 socket-connect 失败且原原件确认退休后重试，协议／TLS 握手错误不重放。
+
+本地容量不足继续是业务连接健康的中性结果，不隔离远端节点，也不将 `url_test` 改成逐请求 fallback。主动测速现在同样识别保留的 typed 本地网络／名称解析失败，将其视为环境不确定而非节点测坏；真实远端连接失败仍按既有熔断与重选策略处理。公开配置形状和 wire/API 不变。
+
 ### VLESS standard Source masks and XHTTP session ownership
 
 VLESS 入站 TCP FinalMask 的普通 TCP/TLS/WS/H2/HTTP-Upgrade 与 gRPC/split-HTTP 入口改用同一 Host 原始账本持有的 inline 变换；冷准备只存原配方，真正材料在标准工厂 Build、凭据发布与 I/O 之前构造。删除这些生产路径的通道 worker 回退，保留 Custom 握手、Fragment、双向 Sudoku、原 native/control/endpoint、回压和独立半关闭。普通原生出站也显式选择 hosted 入口；原有 MUX/preconnect/mixed 前缀继续使用其实际已付材料及原载体。独立协议库便捷 API 继续保留原有执行能力。

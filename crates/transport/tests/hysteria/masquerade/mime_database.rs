@@ -1,6 +1,14 @@
 use super::*;
 
 #[test]
+fn builtin_csv_type_and_case_folding_do_not_depend_on_host_overrides() {
+    let db = Database::builtins();
+    for extension in ["csv", "CSV"] {
+        assert_eq!(db.lookup(extension), Some("text/csv; charset=utf-8"));
+    }
+}
+
+#[test]
 fn glob_database_retains_builtin_and_first_weighted_type() {
     let mut db = Database::builtins();
     db.globs(std::io::Cursor::new(

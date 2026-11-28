@@ -240,7 +240,7 @@ impl VlessAdapter {
                     resources
                         .candidate()
                         .map(|config| config.runtime.effective_native_stream_max_originals())
-                        .unwrap_or(4),
+                        .unwrap_or(256),
                 )
                 .filter(|limit| limit.get() <= 4096)
                 .ok_or_else(|| {

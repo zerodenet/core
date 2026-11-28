@@ -119,7 +119,12 @@ async fn actual_peer_driver_ready_keeps_original_until_real_registered_peer_join
                                 let (size, source) = bridge.recv_from_addr(&mut bytes).await?;
                                 assert_eq!(&bytes[..size], b"actual reply");
                                 assert!(source.is_current());
-                                assert!(read_tx.send(source.clone()).is_ok());
+                                assert!(read_tx
+                                    .send((
+                                        source.clone(),
+                                        sent.local.expect("same original socket local_addr")
+                                    ))
+                                    .is_ok());
                                 assert!(bridge
                                     .finish_session(session, deadline())
                                     .await
@@ -160,7 +165,9 @@ async fn actual_peer_driver_ready_keeps_original_until_real_registered_peer_join
         .unwrap();
     assert_eq!(&bytes[..size], b"actual grant");
     peer.send_to(b"actual reply", original).await.unwrap();
-    let source = read_rx.await.unwrap();
+    let (source, original_bind) = read_rx.await.unwrap();
+    assert_eq!(original_bind.port(), original.port());
+    assert_eq!(original_bind.is_ipv4(), original.is_ipv4());
     tokio::time::timeout(Duration::from_secs(2), pending_exit.notified())
         .await
         .unwrap();
@@ -174,7 +181,7 @@ async fn actual_peer_driver_ready_keeps_original_until_real_registered_peer_join
         Reason::Timeout
     );
     group.retire_joined(deadline()).await.unwrap();
-    assert!(tokio::net::UdpSocket::bind(original).await.is_err());
+    assert!(tokio::net::UdpSocket::bind(original_bind).await.is_err());
     release_exit.write_u8(1).await.unwrap();
     let observing = host_owner.observe_driver();
     tokio::pin!(observing);
@@ -186,7 +193,7 @@ async fn actual_peer_driver_ready_keeps_original_until_real_registered_peer_join
     assert!(joined.failure().is_none());
     // Native close is driven only after the genuine dispatched peer receipt.
     group.retire_joined(deadline()).await.unwrap();
-    tokio::net::UdpSocket::bind(original).await.unwrap();
+    tokio::net::UdpSocket::bind(original_bind).await.unwrap();
     stop_listener.send_replace(true);
     tokio::time::timeout(Duration::from_secs(2), &mut observing)
         .await

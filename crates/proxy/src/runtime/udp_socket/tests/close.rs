@@ -13,6 +13,9 @@ async fn explicit_retirement_keeps_shared_port_tombstones_and_other_peer_alive()
         .await
         .unwrap();
     let (_, shared) = first.recv_from(&mut bytes).await.unwrap();
+    let shared_bind = sockets.sockets[0].socket.local_addr().unwrap();
+    assert_eq!(shared_bind.port(), shared.port());
+    assert_eq!(shared_bind.is_ipv4(), shared.is_ipv4());
     sockets
         .send_to_addr(b"second", second.local_addr().unwrap(), 2, &policy)
         .await
@@ -25,13 +28,16 @@ async fn explicit_retirement_keeps_shared_port_tombstones_and_other_peer_alive()
     assert!(!source.is_current());
     assert_eq!(sockets.sockets.len(), 1);
     assert!(sockets.take_native_close_report().closed_io.is_empty());
-    assert!(tokio::net::UdpSocket::bind(shared).await.is_err());
+    assert!(tokio::net::UdpSocket::bind(shared_bind).await.is_err());
     // The retired tuple cannot be reassigned while its old shared socket lives.
     sockets
         .send_to_addr(b"new first", first.local_addr().unwrap(), 3, &policy)
         .await
         .unwrap();
     let (_, isolated) = first.recv_from(&mut bytes).await.unwrap();
+    let isolated_bind = sockets.sockets[1].socket.local_addr().unwrap();
+    assert_eq!(isolated_bind.port(), isolated.port());
+    assert_eq!(isolated_bind.is_ipv4(), isolated.is_ipv4());
     assert_ne!(isolated, shared);
     second.send_to(b"still second", shared).await.unwrap();
     let (size, current) =
@@ -50,11 +56,11 @@ async fn explicit_retirement_keeps_shared_port_tombstones_and_other_peer_alive()
         report.closed_io,
         vec!["explicitly closed 1 original Direct UDP sockets"]
     );
-    tokio::net::UdpSocket::bind(shared).await.unwrap();
+    tokio::net::UdpSocket::bind(shared_bind).await.unwrap();
     assert!(sockets.native_close_failure().is_none());
     sockets.close_all_native();
     assert!(sockets.take_native_close_report().is_complete());
-    tokio::net::UdpSocket::bind(isolated).await.unwrap();
+    tokio::net::UdpSocket::bind(isolated_bind).await.unwrap();
 }
 #[tokio::test]
 async fn native_close_ledger_aggregates_real_success_without_clearing_unreported_receipts_on_reuse()
@@ -146,6 +152,9 @@ async fn deferred_native_retirement_revokes_guards_but_keeps_original_fds_and_bu
         .await
         .unwrap();
     let (_, local) = peer.recv_from(&mut bytes).await.unwrap();
+    let original_bind = sockets.sockets[0].socket.local_addr().unwrap();
+    assert_eq!(original_bind.port(), local.port());
+    assert_eq!(original_bind.is_ipv4(), local.is_ipv4());
     peer.send_to(b"read guard", local).await.unwrap();
     let (_, guard) = sockets.recv_from_addr(&mut bytes).await.unwrap();
     assert!(guard.is_current());
@@ -154,14 +163,14 @@ async fn deferred_native_retirement_revokes_guards_but_keeps_original_fds_and_bu
     assert_eq!(sockets.sockets.len(), 1);
     assert!(sockets.sockets[0].retired);
     assert!(sockets.take_native_close_report().closed_io.is_empty());
-    assert!(tokio::net::UdpSocket::bind(local).await.is_err());
+    assert!(tokio::net::UdpSocket::bind(original_bind).await.is_err());
     // Logical retirement alone leaves the old descriptor charged.
     assert!(sockets
         .send_to_addr(b"forbidden reuse", target, 2, &policy)
         .await
         .is_err());
     assert!(sockets.take_native_close_report().closed_io.is_empty());
-    assert!(tokio::net::UdpSocket::bind(local).await.is_err());
+    assert!(tokio::net::UdpSocket::bind(original_bind).await.is_err());
     // Normal topology rotation is performed by this sole mutable I/O owner,
     // after its old poll ended. Only the actual syscall receipt frees capacity.
     proxy.egress_interface.invalidate_network();
@@ -172,12 +181,15 @@ async fn deferred_native_retirement_revokes_guards_but_keeps_original_fds_and_bu
         rotated.closed_io,
         vec!["explicitly closed 1 original Direct UDP sockets"]
     );
-    tokio::net::UdpSocket::bind(local).await.unwrap();
+    tokio::net::UdpSocket::bind(original_bind).await.unwrap();
     sockets
         .send_to_addr(b"new epoch", target, 2, &policy)
         .await
         .unwrap();
     let (_, current) = peer.recv_from(&mut bytes).await.unwrap();
+    let current_bind = sockets.sockets[0].socket.local_addr().unwrap();
+    assert_eq!(current_bind.port(), current.port());
+    assert_eq!(current_bind.is_ipv4(), current.is_ipv4());
     assert!(!guard.is_current());
     // Final lifecycle closure still needs its separate actual task proof.
     // This unit checks only original FD receipts, never constructs TaskExit.
@@ -188,5 +200,5 @@ async fn deferred_native_retirement_revokes_guards_but_keeps_original_fds_and_bu
         report.closed_io,
         vec!["explicitly closed 1 original Direct UDP sockets"]
     );
-    tokio::net::UdpSocket::bind(current).await.unwrap();
+    tokio::net::UdpSocket::bind(current_bind).await.unwrap();
 }

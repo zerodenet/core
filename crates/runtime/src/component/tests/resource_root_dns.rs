@@ -141,27 +141,36 @@ async fn canceled_dns_query_retains_original_fd_until_explicit_native_close_afte
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        std::net::UdpSocket::bind(local).unwrap_err().kind(),
-        std::io::ErrorKind::AddrInUse
-    );
+    let mut controls = host.roots.entries[&0].controls();
+    assert_eq!(controls.len(), 1);
+    let control = controls.pop().unwrap().0;
+    let assert_original_live = || {
+        let state = control.observe();
+        assert!(!state.operation_pending && !state.native_closed);
+        assert!(state.unknown.is_none());
+    };
+    // The server received this original's query. Observe its actual controller,
+    // not the wire address: Windows allows a wildcard/concrete UDP bind overlap.
+    assert_original_live();
     caller.abort();
     assert!(caller.await.unwrap_err().is_cancelled());
     assert!(dns.shutdown_queries(Instant::now()).await.is_err());
     // A cancelled waiter/future and a close deadline own no native-close proof.
-    assert_eq!(
-        std::net::UdpSocket::bind(local).unwrap_err().kind(),
-        std::io::ErrorKind::AddrInUse
-    );
+    assert_original_live();
     let actual = scope.next_exit().await.unwrap();
     assert!(actual.result.is_ok());
     dns.shutdown_queries(deadline()).await.unwrap();
-    assert_eq!(
-        std::net::UdpSocket::bind(local).unwrap_err().kind(),
-        std::io::ErrorKind::AddrInUse
-    );
+    assert_original_live();
     let report = host.shutdown_io(deadline()).await.unwrap();
+    assert!(report.is_complete());
     assert_eq!(report.closed_io.len(), 1);
+    let state = control.observe();
+    assert!(state.native_closed && !state.operation_pending);
+    assert!(state.unknown.is_none());
+    // Host retirement already closed this same original and retired its users;
+    // only now consume the idempotent receipt, without closing it on Host's behalf.
+    let closed = control.try_close().unwrap().unwrap();
+    assert!(closed.matches(&control));
     let probe = std::net::UdpSocket::bind(local).unwrap();
     drop(probe);
 }

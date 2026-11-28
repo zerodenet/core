@@ -109,7 +109,7 @@ pub struct RuntimeOptionsConfig {
     /// On-demand physical carriers per native MUX pool. Omission preserves the exported configuration shape and uses a conservative four-carrier cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_mux_max_carriers: Option<usize>,
-    /// Actual native or borrowed original slots per taskless Stream role. Four by default, shared by its pending and delivered carrier uses.
+    /// Actual native or borrowed original slots per taskless Stream role. Default256, shared by its pending and delivered carrier uses; also bounded by carrier_max_total_originals.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_stream_max_originals: Option<usize>,
     /// Actual TCP originals per Direct component generation, including pending,

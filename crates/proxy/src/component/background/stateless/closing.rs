@@ -1,6 +1,29 @@
 //! Native and foreign branches persist actual reports before the other can wait.
 use super::*;
 impl Transfer {
+    /// A demand without a deadline may drive retirement, but never owns an
+    /// unbounded wait. The outer timer wins before inner close timers can turn
+    /// an expired grace period into a retained cleanup fault. Segment receipts
+    /// stay on this controller even if cancellation drops the joined future.
+    pub(super) async fn close_with_grace(
+        &self,
+        cancel: &CancellationToken,
+        end: Instant,
+    ) -> Result<CloseReport, ChannelError> {
+        let report = self.try_close()?;
+        if report.is_complete() || !self.has_incomplete_cleanup_segments() {
+            return Ok(report);
+        }
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(crate::component::instance::invalid(
+                Reason::Cancelled,
+                "carrier cleanup demand cancelled",
+            )),
+            _ = tokio::time::sleep_until(end) => self.try_close(),
+            waited = self.close(end) => waited,
+        }
+    }
     pub(super) fn try_close(&self) -> Result<CloseReport, ChannelError> {
         self.stop.cancel();
         self.request_pending_retirement();

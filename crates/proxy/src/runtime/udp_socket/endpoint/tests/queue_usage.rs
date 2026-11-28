@@ -90,6 +90,9 @@ async fn actual_driver_queue_snapshots_keep_zero_length_entries_and_recycle_afte
         let mut bytes = [0; 64];
         let (size, original) = peer.recv_from(&mut bytes).await.unwrap();
         assert_eq!(size, 0);
+        let original_bind = sent.local.expect("same original socket local_addr");
+        assert_eq!(original_bind.port(), original.port());
+        assert_eq!(original_bind.is_ipv4(), original.is_ipv4());
         let live = observation
             .sending
             .lock()
@@ -143,7 +146,7 @@ async fn actual_driver_queue_snapshots_keep_zero_length_entries_and_recycle_afte
         assert_eq!(queued.owned, queued.queued_receive);
         assert_eq!(queued.owned.entries, 1);
         assert_eq!(queued.owned.bytes, payload.len());
-        assert!(tokio::net::UdpSocket::bind(original).await.is_err());
+        assert!(tokio::net::UdpSocket::bind(original_bind).await.is_err());
         peer.send_to(b"full queue must preserve the existing copy", original)
             .await
             .unwrap();
@@ -171,7 +174,7 @@ async fn actual_driver_queue_snapshots_keep_zero_length_entries_and_recycle_afte
             closed.peak_bytes,
             size_of::<SocketAddr>() + "copy.test".len()
         );
-        tokio::net::UdpSocket::bind(original).await.unwrap();
+        tokio::net::UdpSocket::bind(original_bind).await.unwrap();
         old_receivers.push(rx);
     }
     assert_eq!(observation.discarded.load(Ordering::Acquire), 8);

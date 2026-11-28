@@ -134,7 +134,7 @@ fn assert_retired_browser_agent(result: Result<(), Box<WebSocketError>>, source:
             if matches!(
                 error.kind(),
                 std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
-            ) => {}
+            ) || (cfg!(windows) && error.kind() == std::io::ErrorKind::ConnectionAborted) => {}
         Err(error) => panic!("actual browser control failed: {error}"),
     }
 }

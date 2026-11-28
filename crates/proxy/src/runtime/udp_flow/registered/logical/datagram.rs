@@ -28,6 +28,25 @@ pub(super) struct DatagramConnection {
 fn legacy(error: ChannelError) -> EngineError {
     std::io::Error::other(error).into()
 }
+#[cfg(feature = "raw-ip-runtime")]
+fn register_native_datagram(
+    execution: &TcpExecutionServices,
+    reservation: &crate::component::datagram_retirement::DatagramReservation,
+) -> Result<(), ChannelError> {
+    let Some(native) = execution
+        .invocation
+        .as_ref()
+        .and_then(|call| call.caller_native.as_ref())
+    else {
+        return Ok(());
+    };
+    native.check_open()?;
+    let caller = native
+        .caller_witness()
+        .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Session))?;
+    let registration = reservation.registration(&caller)?;
+    native.observe_logical_datagram(registration)
+}
 impl DatagramConnection {
     pub(super) async fn open(
         execution: &TcpExecutionServices,
@@ -36,6 +55,8 @@ impl DatagramConnection {
     ) -> Result<Arc<Self>, EngineError> {
         let slot = target.current_slot(execution)?;
         let reservation = execution.reserve_datagram().map_err(legacy)?;
+        #[cfg(feature = "raw-ip-runtime")]
+        register_native_datagram(execution, &reservation).map_err(legacy)?;
         let association = reservation.association();
         let opening = reservation
             .begin_open(
@@ -88,6 +109,8 @@ impl DatagramConnection {
         session: &Session,
     ) -> Result<Arc<Self>, EngineError> {
         let reservation = execution.reserve_datagram().map_err(legacy)?;
+        #[cfg(feature = "raw-ip-runtime")]
+        register_native_datagram(execution, &reservation).map_err(legacy)?;
         let association = reservation.association();
         let mut roles: Vec<_> = prepared
             .prefix

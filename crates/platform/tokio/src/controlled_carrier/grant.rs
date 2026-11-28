@@ -211,4 +211,37 @@ impl CarrierGrants {
         }
         Ok(retired)
     }
+
+    pub fn try_reap_returned(&self) -> Result<usize, ChannelError> {
+        let slots = { self.0.state().slots.clone() };
+        let mut retired = 0;
+        for slot in slots {
+            let (idle, users, driver, auxiliary) = {
+                let state = slot.state();
+                (
+                    !state.reservation_live
+                        && !state.opening
+                        && !state.spawning
+                        && !state.view_live
+                        && state.unknown.is_none(),
+                    state.users.clone(),
+                    state.driver.clone(),
+                    state.auxiliary.clone(),
+                )
+            };
+            if !idle
+                || users.is_some_and(|users| !users.ready())
+                || driver.is_some_and(|(_, witness)| !witness.is_joined())
+                || auxiliary.is_some_and(|witness| !witness.is_joined())
+            {
+                continue;
+            }
+            let report = super::owner::try_close_slot(&slot)?;
+            if report.is_complete() {
+                self.0.state().confirmed.append(report);
+                retired += 1;
+            }
+        }
+        Ok(retired)
+    }
 }
